@@ -1,0 +1,91 @@
+package client
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+)
+
+const (
+	CloudPanelBase   = "https://cloudpanel.piensasolutions.com"
+	FrontPanelBase   = "https://front-cloudpanel.piensasolutions.com/api/corevps/v1"
+	SecurePanelBase  = "https://secure.piensasolutions.com"
+)
+
+type Client struct {
+	http   *http.Client
+	token  string
+	origin string
+}
+
+func New(token string) *Client {
+	return &Client{
+		http:   &http.Client{},
+		token:  token,
+		origin: CloudPanelBase,
+	}
+}
+
+func (c *Client) WithOrigin(origin string) *Client {
+	c.origin = origin
+	return c
+}
+
+func (c *Client) do(method, url string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-TOKEN", c.token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", c.origin)
+	req.Header.Set("User-Agent", "piensa-cli/1.0")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request: %w", err)
+	}
+	return resp, nil
+}
+
+func (c *Client) get(url string) (*http.Response, error) {
+	return c.do(http.MethodGet, url, nil)
+}
+
+func (c *Client) post(url string, body interface{}) (*http.Response, error) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	return c.do(http.MethodPost, url, strings.NewReader(string(b)))
+}
+
+func (c *Client) put(url string, body interface{}) (*http.Response, error) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	return c.do(http.MethodPut, url, strings.NewReader(string(b)))
+}
+
+func (c *Client) del(url string) (*http.Response, error) {
+	return c.do(http.MethodDelete, url, nil)
+}
+
+func readBody(resp *http.Response) ([]byte, error) {
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	return data, nil
+}
+
+func checkStatus(resp *http.Response) error {
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	body, _ := readBody(resp)
+	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+}
