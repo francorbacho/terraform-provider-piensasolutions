@@ -387,6 +387,14 @@ var fwAllowCmd = &cobra.Command{
 		}
 		var p int
 		fmt.Sscanf(portStr, "%d", &p)
+		for _, pol := range policies {
+			for _, r := range pol.Rules {
+				if r.PortFrom == p && r.PortTo == p && strings.EqualFold(string(r.Protocol), protocol) {
+					fmt.Fprintf(os.Stderr, "port %s/%s is already allowed on %s\n", portStr, protocol, serverID)
+					os.Exit(1)
+				}
+			}
+		}
 		if err := client.OpenPort(c, policies[0].ID, p, protocol, description); err != nil {
 			fmt.Fprintf(os.Stderr, "allow port: %v\n", err)
 			os.Exit(1)

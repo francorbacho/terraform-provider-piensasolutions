@@ -93,7 +93,11 @@ func checkStatus(resp *http.Response) error {
 		return nil
 	}
 	body, _ := readBody(resp)
-	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	msg := strings.TrimSpace(string(body))
+	if resp.StatusCode == 409 {
+		return fmt.Errorf("policy still being configured, try again in a few seconds")
+	}
+	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
 }
 
 // --- HMAC client for secure.piensasolutions.com ---
