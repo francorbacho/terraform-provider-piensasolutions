@@ -2,7 +2,6 @@ package client
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,7 +22,11 @@ type LoginResult struct {
 var Verbose bool
 
 // Login sends username + password + 2FA to public-gateway.php and returns
-// the session token (tkn) and HMAC key (pvtKey) from Set-Cookie headers.
+// the session token (tkn) and HMAC key (pvtKey).
+//
+// The response is:
+//  1. 302 redirect with tkn cookie (no pvtKey yet)
+//  2. Following the redirect sets the pvtKey cookie
 func Login(creds LoginCredentials) (*LoginResult, error) {
 	form := url.Values{
 		"DAFLOGIN":      {creds.NIF},
@@ -52,12 +55,17 @@ func Login(creds LoginCredentials) (*LoginResult, error) {
 		fmt.Printf("[verbose] Body: %s\n", form.Encode())
 	}
 
+	jar := makeCookieJar()
 	client := &http.Client{
+		Jar: jar,
 		CheckRedirect: func(r *http.Request, via []*http.Request) error {
 			if Verbose {
-				fmt.Printf("[verbose] * NOT following redirect to: %s\n", r.URL.String())
+				fmt.Printf("[verbose]   302 -> %s\n", r.URL.String())
 			}
-			return http.ErrUseLastResponse
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
 		},
 	}
 
@@ -65,22 +73,22 @@ func Login(creds LoginCredentials) (*LoginResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("login request: %w", err)
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 
 	if Verbose {
-		fmt.Printf("[verbose] Response: HTTP %d\n", resp.StatusCode)
-		for _, c := range resp.Cookies() {
+		fmt.Printf("[verbose] Final response: HTTP %d\n", resp.StatusCode)
+	}
+
+	// Extract cookies accumulated across redirects
+	allCookies := jar.AllCookies()
+	if Verbose {
+		for _, c := range allCookies {
 			fmt.Printf("[verbose]   Cookie: %s=%s\n", c.Name, c.Value)
 		}
 	}
 
-	if resp.StatusCode != 302 && resp.StatusCode != 200 {
-		return nil, fmt.Errorf("login failed (HTTP %d)", resp.StatusCode)
-	}
-
 	var tkn, pvtKey string
-	for _, c := range resp.Cookies() {
+	for _, c := range allCookies {
 		switch c.Name {
 		case "tkn":
 			tkn = c.Value
@@ -89,13 +97,47 @@ func Login(creds LoginCredentials) (*LoginResult, error) {
 		}
 	}
 	if tkn == "" {
-		return nil, fmt.Errorf("login failed: no session token (tkn) in response cookies")
+		return nil, fmt.Errorf("login failed: no session token (tkn) in cookies")
 	}
 	if pvtKey == "" {
-		return nil, fmt.Errorf("login failed: no pvtKey in response cookies")
+		return nil, fmt.Errorf("login failed: no pvtKey in cookies")
 	}
 
 	return &LoginResult{SessionToken: tkn, PvtKey: pvtKey}, nil
+}
+
+// simpleCookieJar collects cookies from responses.
+type simpleCookieJar struct {
+	cookies []*http.Cookie
+}
+
+func makeCookieJar() *simpleCookieJar {
+	return &simpleCookieJar{}
+}
+
+func (j *simpleCookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	for _, c := range cookies {
+		existing := -1
+		for i, e := range j.cookies {
+			if e.Name == c.Name {
+				existing = i
+				break
+			}
+		}
+		if existing >= 0 {
+			j.cookies[existing] = c
+		} else {
+			j.cookies = append(j.cookies, c)
+		}
+	}
+}
+
+func (j *simpleCookieJar) Cookies(u *url.URL) []*http.Cookie {
+	return j.cookies
+}
+
+func (j *simpleCookieJar) AllCookies() []*http.Cookie {
+	return j.cookies
 }
 
 // --- Full login chain ---
