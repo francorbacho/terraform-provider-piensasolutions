@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
+	"strings"
 
 	"github.com/fran/piensa/pkg/models"
 )
@@ -64,7 +64,7 @@ func FindAccountByServerID(cfg *models.Config, serverID string) (*models.Account
 	for i := range cfg.Accounts {
 		for j := range cfg.Accounts[i].Servers {
 			st := &cfg.Accounts[i].Servers[j]
-			if st.ServerID == serverID {
+			if st.ServerID == serverID || strings.HasPrefix(st.ServerID, serverID) {
 				return &cfg.Accounts[i], st
 			}
 		}
@@ -72,21 +72,4 @@ func FindAccountByServerID(cfg *models.Config, serverID string) (*models.Account
 	return nil, nil
 }
 
-func FindAccountByToken(cfg *models.Config, token string) (*models.Account, *models.ServerToken) {
-	for i := range cfg.Accounts {
-		for j := range cfg.Accounts[i].Servers {
-			st := &cfg.Accounts[i].Servers[j]
-			if st.Token == token {
-				return &cfg.Accounts[i], st
-			}
-		}
-	}
-	return nil, nil
-}
 
-func IsTokenExpired(st *models.ServerToken) bool {
-	if st.ExpiresAt.IsZero() {
-		return false
-	}
-	return time.Now().After(st.ExpiresAt)
-}
