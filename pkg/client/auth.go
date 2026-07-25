@@ -173,8 +173,15 @@ func FullLogin(creds LoginCredentials) ([]DiscoveredVPS, error) {
 
 	var out []DiscoveredVPS
 	for _, svc := range services {
+		if Verbose {
+			fmt.Printf("[verbose] VPS service: idsco=%d name=%q\n", svc.IDsco, svc.Des)
+		}
+
 		xsrfToken, ttl, err := PanellinkToXSRF(sc, svc.IDsco)
 		if err != nil {
+			if Verbose {
+				fmt.Printf("[verbose]   panellink error: %v\n", err)
+			}
 			continue
 		}
 
@@ -186,9 +193,21 @@ func FullLogin(creds LoginCredentials) ([]DiscoveredVPS, error) {
 		}
 
 		c := New(xsrfToken)
-		if servers, err := DiscoverServers(c); err == nil && len(servers) > 0 {
+		servers, err := DiscoverServers(c)
+		if err != nil {
+			if Verbose {
+				fmt.Printf("[verbose]   discover error: %v\n", err)
+			}
+		} else if len(servers) > 0 {
 			vps.ServerUUID = servers[0].ID
 			vps.Name = servers[0].Name
+			if Verbose {
+				fmt.Printf("[verbose]   server UUID: %s name: %s\n", vps.ServerUUID[:8], vps.Name)
+			}
+		} else {
+			if Verbose {
+				fmt.Printf("[verbose]   discover returned 0 servers for this token\n")
+			}
 		}
 
 		out = append(out, vps)

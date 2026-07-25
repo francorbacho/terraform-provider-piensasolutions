@@ -100,20 +100,43 @@ func DiscoverAllServers(tokens []string) ([]models.Server, map[string]string, er
 	tokenMap := make(map[string]string)
 	seen := make(map[string]bool)
 
+	if Verbose {
+		fmt.Printf("[verbose] DiscoverAllServers: %d tokens\n", len(tokens))
+	}
+
 	for _, tok := range tokens {
 		if tok == "" {
+			if Verbose {
+				fmt.Printf("[verbose]   skipping empty token\n")
+			}
 			continue
+		}
+		if Verbose {
+			fmt.Printf("[verbose]   trying token %s...\n", tok[:12]+"...")
 		}
 		c := New(tok)
 		servers, err := DiscoverServers(c)
 		if err != nil {
+			if Verbose {
+				fmt.Printf("[verbose]     error: %v\n", err)
+			}
 			continue
+		}
+		if Verbose {
+			fmt.Printf("[verbose]     returned %d server(s)\n", len(servers))
 		}
 		for _, s := range servers {
 			if !seen[s.ID] {
 				seen[s.ID] = true
 				all = append(all, s)
 				tokenMap[s.ID] = tok
+				if Verbose {
+					fmt.Printf("[verbose]       + %s %s\n", s.ID[:8], s.Name)
+				}
+			} else {
+				if Verbose {
+					fmt.Printf("[verbose]       - %s %s (duplicate)\n", s.ID[:8], s.Name)
+				}
 			}
 		}
 	}
@@ -207,39 +230,50 @@ func PanellinkToXSRF(sc *SecureClient, idsco int) (string, time.Duration, error)
 		loginURL = CloudPanelBase + "/" + strings.TrimLeft(loginURL, "/")
 	}
 
-	// Follow loginuser.php redirect
-	anonClient := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	loginResp, err := anonClient.Get(loginURL)
+	if Verbose {
+		fmt.Printf("[verbose]   panellink action: %s\n", loginURL)
+	}
+
+	// loginuser.php redirect chain with cookie jar
+	jar := makeCookieJar()
+	redirectClient := &http.Client{
+		Jar: jar,
+		CheckRedirect: func(r *http.Request, via []*http.Request) error {
+			if Verbose {
+				fmt.Printf("[verbose]   loginuser redirect -> %s\n", r.URL.String())
+			}
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+	loginResp, err := redirectClient.Get(loginURL)
 	if err != nil {
 		return "", 0, fmt.Errorf("loginuser: %w", err)
 	}
 	loginResp.Body.Close()
 
-	if loginResp.StatusCode != 302 {
-		return "", 0, fmt.Errorf("loginuser: expected 302, got %d", loginResp.StatusCode)
+	if Verbose {
+		fmt.Printf("[verbose]   loginuser final HTTP %d\n", loginResp.StatusCode)
 	}
 
-	panelPath := loginResp.Header.Get("Location")
-	if panelPath == "" {
-		return "", 0, fmt.Errorf("loginuser: no Location header")
+	// Extract XSRF from accumulated cookies
+	allCookies := jar.AllCookies()
+	if Verbose {
+		for _, c := range allCookies {
+			val := c.Value
+			if len(val) > 60 {
+				val = val[:60] + "..."
+			}
+			fmt.Printf("[verbose]   cookie: %s=%s (domain=%s)\n", c.Name, val, c.Domain)
+		}
 	}
-	panelURL := CloudPanelBase + "/" + strings.TrimLeft(panelPath, "/")
 
-	// Check loginuser for cookie first (in case it's set there)
-	if tok, ttl := parseXSRFFromCookies(loginResp.Cookies()); tok != "" {
-		return tok, ttl, nil
-	}
-
-	// Follow to panel page
-	followResp, err := anonClient.Get(panelURL)
-	if err != nil {
-		return "", 0, fmt.Errorf("panel: %w", err)
-	}
-	followResp.Body.Close()
-
-	if tok, ttl := parseXSRFFromCookies(followResp.Cookies()); tok != "" {
+	if tok, ttl := parseXSRFFromCookies(allCookies); tok != "" {
+		if Verbose {
+			fmt.Printf("[verbose]   XSRF token: %s (TTL: %v)\n", tok[:12]+"...", ttl)
+		}
 		return tok, ttl, nil
 	}
 
