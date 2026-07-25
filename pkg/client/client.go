@@ -90,7 +90,7 @@ func checkStatus(resp *http.Response) error {
 	body, _ := readBody(resp)
 	msg := strings.TrimSpace(string(body))
 	if resp.StatusCode == 409 {
-		return fmt.Errorf("policy still being configured, try again in a few seconds")
+		return fmt.Errorf("server is busy, try again in a few seconds")
 	}
 	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
 }

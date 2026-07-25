@@ -370,14 +370,19 @@ func makeActionCmd(use, short string, action string) *cobra.Command {
 		Short: short,
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			serverID := args[0]
+			inputID := args[0]
 			cfg := loadConfig()
-			c := resolveClientForServer(cfg, serverID)
-			if _, err := client.RawServerAction(c, serverID, action); err != nil {
+			_, st := config.FindAccountByServerID(cfg, inputID)
+			if st == nil {
+				fmt.Fprintf(os.Stderr, "no token for server %s\n", inputID)
+				os.Exit(1)
+			}
+			c := client.New(st.Token)
+			if _, err := client.RawServerAction(c, st.ServerID, action); err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %v\n", action, err)
 				os.Exit(1)
 			}
-			fmt.Printf("%s initiated for %s\n", action, serverID[:8])
+			fmt.Printf("%s initiated for %s\n", action, st.ServerID[:8])
 		},
 	}
 }
