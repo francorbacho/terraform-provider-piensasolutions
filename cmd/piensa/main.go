@@ -21,12 +21,17 @@ var rootCmd = &cobra.Command{
 	Long:  `Manage your PiensaSolutions VPS servers, ports, and firewall rules.`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		client.Verbose = verboseFlag
+	},
 }
 
 var tokenFlag string
+var verboseFlag bool
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&tokenFlag, "token", "t", "", "X-TOKEN (overrides config)")
+	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "Show request/response details")
 }
 
 func main() {
@@ -103,9 +108,6 @@ You can also use --xsrf to register tokens directly, or
 	Run: func(cmd *cobra.Command, args []string) {
 		xsrfMode, _ := cmd.Flags().GetBool("xsrf")
 		secureMode, _ := cmd.Flags().GetBool("secure")
-		verbose, _ := cmd.Flags().GetBool("verbose")
-
-		client.Verbose = verbose
 
 		switch {
 		case xsrfMode:
@@ -287,14 +289,17 @@ func mergeAccount(cfg *models.Config, acct *models.Account) {
 		cfg.Accounts = append(cfg.Accounts, *acct)
 		return
 	}
-	existing := make(map[string]bool)
-	for _, st := range cfg.Accounts[0].Servers {
-		existing[st.ServerID] = true
+	byID := make(map[string]*models.ServerToken)
+	for i := range cfg.Accounts[0].Servers {
+		byID[cfg.Accounts[0].Servers[i].ServerID] = &cfg.Accounts[0].Servers[i]
 	}
 	for _, st := range acct.Servers {
-		if !existing[st.ServerID] {
+		if existing, ok := byID[st.ServerID]; ok {
+			existing.Token = st.Token
+			existing.ExpiresAt = st.ExpiresAt
+			existing.ServerName = st.ServerName
+		} else {
 			cfg.Accounts[0].Servers = append(cfg.Accounts[0].Servers, st)
-			existing[st.ServerID] = true
 		}
 	}
 }
@@ -514,8 +519,9 @@ var closeCmd = &cobra.Command{
 				for _, r := range p.Rules {
 					if strings.HasPrefix(r.ID, ruleID) || r.ID == ruleID {
 						if err := client.ClosePort(c, p.ID, r.ID); err != nil {
-							fmt.Fprintf(os.Stderr, "close on %s: %v\n", s.Name, err)
-							continue
+							fmt.Fprintf(os.Stderr, "error closing rule %s on %s: %v\n",
+								r.ID[:8], s.Name, err)
+							os.Exit(1)
 						}
 						fmt.Printf("Closed rule %s (%s/%d) on %s (%s)\n",
 							r.ID[:8], r.Protocol, r.PortFrom, s.Name, s.ID[:8])
@@ -552,7 +558,6 @@ func makeActionCmd(use, short string, action string) *cobra.Command {
 func init() {
 	loginCmd.Flags().Bool("xsrf", false, "Register XSRF tokens directly (comma-separated)")
 	loginCmd.Flags().Bool("secure", false, "Use secure.piensasolutions.com session token")
-	loginCmd.Flags().BoolP("verbose", "v", false, "Show request/response details")
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(listCmd)
 
