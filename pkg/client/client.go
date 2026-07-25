@@ -17,7 +17,7 @@ const (
 	CloudPanelBase  = "https://cloudpanel.piensasolutions.com"
 	FrontPanelBase  = "https://front-cloudpanel.piensasolutions.com/api/corevps/v1"
 	SecurePanelBase = "https://secure.piensasolutions.com"
-	GatewayURL      = "https://www.piensasolutions.com/public-gateway.php"
+	GatewayURL      = "https://secure.piensasolutions.com/public-gateway.php"
 )
 
 type Client struct {

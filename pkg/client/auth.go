@@ -20,6 +20,8 @@ type LoginResult struct {
 	PvtKey       string
 }
 
+var Verbose bool
+
 // Login sends username + password + 2FA to public-gateway.php and returns
 // the session token (tkn) and HMAC key (pvtKey) from Set-Cookie headers.
 func Login(creds LoginCredentials) (*LoginResult, error) {
@@ -32,7 +34,8 @@ func Login(creds LoginCredentials) (*LoginResult, error) {
 		"redirect_fail": {"https://www.piensasolutions.com/clientes?response=ko"},
 	}
 
-	req, err := http.NewRequest("POST", GatewayURL+"?gtw=login",
+	urlStr := GatewayURL
+	req, err := http.NewRequest("POST", urlStr,
 		strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -43,12 +46,34 @@ func Login(creds LoginCredentials) (*LoginResult, error) {
 	req.Header.Set("User-Agent", "piensa-cli/1.0")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 
-	resp, err := http.DefaultClient.Do(req)
+	if Verbose {
+		fmt.Printf("[verbose] POST %s\n", urlStr)
+		fmt.Printf("[verbose] Content-Type: application/x-www-form-urlencoded\n")
+		fmt.Printf("[verbose] Body: %s\n", form.Encode())
+	}
+
+	client := &http.Client{
+		CheckRedirect: func(r *http.Request, via []*http.Request) error {
+			if Verbose {
+				fmt.Printf("[verbose] * NOT following redirect to: %s\n", r.URL.String())
+			}
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("login request: %w", err)
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
+
+	if Verbose {
+		fmt.Printf("[verbose] Response: HTTP %d\n", resp.StatusCode)
+		for _, c := range resp.Cookies() {
+			fmt.Printf("[verbose]   Cookie: %s=%s\n", c.Name, c.Value)
+		}
+	}
 
 	if resp.StatusCode != 302 && resp.StatusCode != 200 {
 		return nil, fmt.Errorf("login failed (HTTP %d)", resp.StatusCode)

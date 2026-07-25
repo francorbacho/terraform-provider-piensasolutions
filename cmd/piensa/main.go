@@ -103,6 +103,9 @@ You can also use --xsrf to register tokens directly, or
 	Run: func(cmd *cobra.Command, args []string) {
 		xsrfMode, _ := cmd.Flags().GetBool("xsrf")
 		secureMode, _ := cmd.Flags().GetBool("secure")
+		verbose, _ := cmd.Flags().GetBool("verbose")
+
+		client.Verbose = verbose
 
 		switch {
 		case xsrfMode:
@@ -549,6 +552,7 @@ func makeActionCmd(use, short string, action string) *cobra.Command {
 func init() {
 	loginCmd.Flags().Bool("xsrf", false, "Register XSRF tokens directly (comma-separated)")
 	loginCmd.Flags().Bool("secure", false, "Use secure.piensasolutions.com session token")
+	loginCmd.Flags().BoolP("verbose", "v", false, "Show request/response details")
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(listCmd)
 
