@@ -65,7 +65,6 @@ func ListFirewallPolicies(c *Client) ([]models.FirewallPolicy, error) {
 			ID:    item.ID,
 			Name:  item.Properties.Name,
 			State: models.ServerState(item.Properties.State),
-			Raw:   item,
 		}
 		for _, r := range item.Related.Rules {
 			p.Rules = append(p.Rules, models.FirewallRule{
@@ -76,7 +75,6 @@ func ListFirewallPolicies(c *Client) ([]models.FirewallPolicy, error) {
 				PortTo:      r.Properties.PortTo,
 				AllowedIP:   r.Properties.AllowedIP,
 				Description: r.Properties.Description,
-				Raw:         r,
 			})
 		}
 		out = append(out, p)
@@ -123,41 +121,4 @@ func ClosePort(c *Client, policyID, ruleID string) error {
 	return checkStatus(resp)
 }
 
-// RawOpenPort opens a port and returns the raw response.
-func RawOpenPort(c *Client, policyID string, port int, protocol, description string) (map[string]interface{}, error) {
-	return RawOpenPortRange(c, policyID, port, port, protocol, description)
-}
 
-// RawOpenPortRange opens a port range and returns the raw response.
-func RawOpenPortRange(c *Client, policyID string, portFrom, portTo int, protocol, description string) (map[string]interface{}, error) {
-	body := map[string]interface{}{
-		"rules": []map[string]interface{}{
-			{
-				"action":      "ALLOW",
-				"allowed_ip":  "all",
-				"protocol":    protocol,
-				"port_from":   portFrom,
-				"port_to":     portTo,
-				"description": description,
-			},
-		},
-	}
-	url := fmt.Sprintf("%s/pss/firewall-policies/%s/rules", FrontPanelBase, policyID)
-	resp, err := c.post(url, body)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if err := checkStatus(resp); err != nil {
-		return nil, err
-	}
-	data, err := readBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("parse: %w", err)
-	}
-	return result, nil
-}

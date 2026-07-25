@@ -57,7 +57,6 @@ type Server struct {
 	DatacenterID string          `json:"datacenter_id"`
 	Resources    ServerResources `json:"resources"`
 	IPs          []IPAddress     `json:"ips"`
-	Raw          interface{}     `json:"-"`
 }
 
 type FirewallRule struct {
@@ -68,7 +67,6 @@ type FirewallRule struct {
 	PortTo      int        `json:"port_to"`
 	AllowedIP   string     `json:"allowed_ip"`
 	Description string     `json:"description"`
-	Raw         interface{} `json:"-"`
 }
 
 type FirewallPolicy struct {
@@ -77,7 +75,6 @@ type FirewallPolicy struct {
 	State  ServerState    `json:"state"`
 	Rules  []FirewallRule `json:"rules"`
 	ServerID string       `json:"server_id,omitempty"`
-	Raw    interface{}    `json:"-"`
 }
 
 type ServerToken struct {
@@ -88,9 +85,8 @@ type ServerToken struct {
 }
 
 type Account struct {
-	Email       string        `json:"email,omitempty"`
-	SecureToken string        `json:"secure_token,omitempty"`
-	Servers     []ServerToken `json:"servers"`
+	NIF    string        `json:"nif,omitempty"`
+	Servers []ServerToken `json:"servers"`
 }
 
 type Config struct {

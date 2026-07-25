@@ -1,17 +1,23 @@
 package client
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const (
-	CloudPanelBase   = "https://cloudpanel.piensasolutions.com"
-	FrontPanelBase   = "https://front-cloudpanel.piensasolutions.com/api/corevps/v1"
-	SecurePanelBase  = "https://secure.piensasolutions.com"
+	CloudPanelBase  = "https://cloudpanel.piensasolutions.com"
+	FrontPanelBase  = "https://front-cloudpanel.piensasolutions.com/api/corevps/v1"
+	SecurePanelBase = "https://secure.piensasolutions.com"
+	GatewayURL      = "https://www.piensasolutions.com/public-gateway.php"
 )
 
 type Client struct {
@@ -88,4 +94,74 @@ func checkStatus(resp *http.Response) error {
 	}
 	body, _ := readBody(resp)
 	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+}
+
+// --- HMAC client for secure.piensasolutions.com ---
+
+type SecureClient struct {
+	http   *http.Client
+	token  string
+	pvtKey string
+}
+
+func NewSecure(token, pvtKey string) *SecureClient {
+	return &SecureClient{
+		http:   &http.Client{},
+		token:  token,
+		pvtKey: pvtKey,
+	}
+}
+
+func (sc *SecureClient) hmacHeaders() (string, string) {
+	microtime := strconv.FormatFloat(float64(time.Now().UnixMicro())/1e6, 'f', 3, 64)
+	mac := hmac.New(sha1.New, []byte(sc.pvtKey))
+	mac.Write([]byte(sc.token + microtime))
+	hash := hex.EncodeToString(mac.Sum(nil))
+	return hash, microtime
+}
+
+func (sc *SecureClient) Get(u string) (*http.Response, error) {
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	hash, microtime := sc.hmacHeaders()
+	req.Header.Set("X-TOKEN", sc.token)
+	req.Header.Set("X-HASH", hash)
+	req.Header.Set("X-MICROTIME", microtime)
+	req.Header.Set("Origin", SecurePanelBase)
+	req.Header.Set("Referer", SecurePanelBase+"/")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("User-Agent", "piensa-cli/1.0")
+	resp, err := sc.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("secure request: %w", err)
+	}
+	return resp, nil
+}
+
+// SecureClientNoRedirect is like Get but doesn't follow redirects.
+func (sc *SecureClient) GetNoRedirect(u string) (*http.Response, error) {
+	noRedirect := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	hash, microtime := sc.hmacHeaders()
+	req.Header.Set("X-TOKEN", sc.token)
+	req.Header.Set("X-HASH", hash)
+	req.Header.Set("X-MICROTIME", microtime)
+	req.Header.Set("Origin", SecurePanelBase)
+	req.Header.Set("Referer", SecurePanelBase+"/")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("User-Agent", "piensa-cli/1.0")
+	resp, err := noRedirect.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("secure request: %w", err)
+	}
+	return resp, nil
 }

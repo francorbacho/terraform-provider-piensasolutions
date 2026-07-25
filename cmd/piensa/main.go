@@ -5,20 +5,20 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/fran/piensa/pkg/client"
 	"github.com/fran/piensa/pkg/config"
 	"github.com/fran/piensa/pkg/models"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "piensa",
 	Short: "PiensaSolutions VPS manager",
-	Long: `Manage your PiensaSolutions VPS servers, ports, and firewall rules.
-
-Config is stored at ~/.config/piensa/config.json.
-Use "piensa login" to set up your tokens.`,
+	Long:  `Manage your PiensaSolutions VPS servers, ports, and firewall rules.`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
 }
@@ -86,75 +86,214 @@ func printJSON(v interface{}) {
 // --- login ---
 
 var loginCmd = &cobra.Command{
-	Use:   "login [token]",
-	Short: "Add a front-cloudpanel X-TOKEN",
-	Long: `Store one or more X-TOKENs for accessing the CoreVPS API.
+	Use:   "login",
+	Short: "Log in with your PiensaSolutions credentials",
+	Long: `Log in with NIF, password, and 2FA code.
 
-You can get tokens from:
-  1. Open https://cloudpanel.piensasolutions.com in your browser
-  2. Open DevTools (F12) → Network tab
-  3. Look for requests to front-cloudpanel.piensasolutions.com
-  4. Copy the X-TOKEN header value
+The CLI will:
+  1. Authenticate with your credentials
+  2. Discover your VPS servers
+  3. Generate per-VPS access tokens
+  4. Save them to config
 
-Pass multiple tokens separated by commas to register all your VPS.`,
-	Args: cobra.MaximumNArgs(1),
+Per-VPS tokens last ~1 hour. Run "piensa login" again to refresh.
+
+You can also use --xsrf to register tokens directly, or
+--secure with a secure.piensasolutions.com session token.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		raw := ""
-		if len(args) > 0 {
-			raw = args[0]
-		} else {
-			fmt.Print("Paste X-TOKEN(s) (comma-separated for multiple VPS): ")
-			fmt.Scanln(&raw)
-		}
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			fmt.Fprintln(os.Stderr, "no token provided")
-			os.Exit(1)
-		}
-		tokens := strings.Split(raw, ",")
-		for i := range tokens {
-			tokens[i] = strings.TrimSpace(tokens[i])
-		}
+		xsrfMode, _ := cmd.Flags().GetBool("xsrf")
+		secureMode, _ := cmd.Flags().GetBool("secure")
 
-		// Discover servers for each token
-		all, tokenMap, err := client.DiscoverAllServers(tokens)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "discovery: %v\n", err)
-			os.Exit(1)
+		switch {
+		case xsrfMode:
+			loginXSRF(cmd)
+		case secureMode:
+			loginSecure(cmd)
+		default:
+			loginInteractive(cmd)
 		}
-
-		cfg := loadConfig()
-		acct := models.Account{}
-		for _, s := range all {
-			tok := tokenMap[s.ID]
-			st := models.ServerToken{
-				ServerID:   s.ID,
-				ServerName: s.Name,
-				Token:      tok,
-			}
-			acct.Servers = append(acct.Servers, st)
-		}
-		if len(cfg.Accounts) == 0 {
-			cfg.Accounts = append(cfg.Accounts, acct)
-		} else {
-			// Merge into first account (dedup by server ID)
-			existing := make(map[string]bool)
-			for _, st := range cfg.Accounts[0].Servers {
-				existing[st.ServerID] = true
-			}
-			for _, st := range acct.Servers {
-				if !existing[st.ServerID] {
-					cfg.Accounts[0].Servers = append(cfg.Accounts[0].Servers, st)
-					existing[st.ServerID] = true
-				}
-			}
-		}
-		if err := config.Save(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "save config: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Saved %d server(s) to config.\n", len(all))
 	},
+}
+
+func loginInteractive(cmd *cobra.Command) {
+	fmt.Print("NIF: ")
+	var nif string
+	fmt.Scanln(&nif)
+	nif = strings.TrimSpace(nif)
+	if nif == "" {
+		fmt.Fprintln(os.Stderr, "NIF required")
+		os.Exit(1)
+	}
+
+	fmt.Print("Password: ")
+	passBytes, err := term.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "\nread password:", err)
+		os.Exit(1)
+	}
+	password := strings.TrimSpace(string(passBytes))
+	fmt.Println()
+
+	fmt.Print("2FA code: ")
+	var code string
+	fmt.Scanln(&code)
+	code = strings.TrimSpace(code)
+	if code == "" {
+		fmt.Fprintln(os.Stderr, "2FA code required")
+		os.Exit(1)
+	}
+
+	fmt.Print("Authenticating... ")
+	vps, err := client.FullLogin(client.LoginCredentials{
+		NIF:      nif,
+		Password: password,
+		Code:     code,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "FAILED")
+		fmt.Fprintf(os.Stderr, "login: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("OK")
+
+	cfg := loadConfig()
+	acct := models.Account{NIF: nif}
+	for _, v := range vps {
+		acct.Servers = append(acct.Servers, models.ServerToken{
+			ServerID:   v.ServerUUID,
+			ServerName: v.Name,
+			Token:      v.XSRFToken,
+			ExpiresAt:  v.ExpiresAt,
+		})
+	}
+	mergeAccount(cfg, &acct)
+	if err := config.Save(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "save config: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Logged in. %d VPS server(s) configured.\n", len(vps))
+	fmt.Println("Tokens expire in ~1h. Run 'piensa login' to refresh.")
+}
+
+// loginXSRF is the old flow: paste comma-separated XSRF tokens
+func loginXSRF(cmd *cobra.Command) {
+	raw := ""
+	args := cmd.Flags().Args()
+	if len(args) > 0 {
+		raw = args[0]
+	} else {
+		fmt.Print("Paste X-TOKEN(s) (comma-separated): ")
+		fmt.Scanln(&raw)
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		fmt.Fprintln(os.Stderr, "no token provided")
+		os.Exit(1)
+	}
+
+	tokens := strings.Split(raw, ",")
+	for i := range tokens {
+		tokens[i] = strings.TrimSpace(tokens[i])
+	}
+
+	all, tokenMap, err := client.DiscoverAllServers(tokens)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "discovery: %v\n", err)
+		os.Exit(1)
+	}
+
+	cfg := loadConfig()
+	acct := models.Account{}
+	for _, s := range all {
+		acct.Servers = append(acct.Servers, models.ServerToken{
+			ServerID:   s.ID,
+			ServerName: s.Name,
+			Token:      tokenMap[s.ID],
+		})
+	}
+	mergeAccount(cfg, &acct)
+	if err := config.Save(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "save config: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Saved %d server(s) to config.\n", len(all))
+}
+
+// loginSecure uses a secure.piensasolutions.com session token
+func loginSecure(cmd *cobra.Command) {
+	args := cmd.Flags().Args()
+	token := ""
+	if len(args) > 0 {
+		token = args[0]
+	} else {
+		fmt.Print("Paste secure.piensasolutions.com X-TOKEN: ")
+		fmt.Scanln(&token)
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		fmt.Fprintln(os.Stderr, "no token provided")
+		os.Exit(1)
+	}
+
+	fmt.Print("Paste pvtKey cookie value: ")
+	var pvtKey string
+	fmt.Scanln(&pvtKey)
+	pvtKey = strings.TrimSpace(pvtKey)
+
+	sc := client.NewSecure(token, pvtKey)
+	if !client.ValidateSecureToken(sc) {
+		fmt.Fprintln(os.Stderr, "session expired or invalid")
+		os.Exit(1)
+	}
+
+	services, err := client.DiscoverServiceIDs(sc)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "discover: %v\n", err)
+		os.Exit(1)
+	}
+
+	cfg := loadConfig()
+	acct := models.Account{}
+	for _, svc := range services {
+		xsrf, ttl, err := client.PanellinkToXSRF(sc, svc.IDsco)
+		if err != nil {
+			continue
+		}
+		vps := models.ServerToken{
+			ServerName: svc.Des,
+			Token:      xsrf,
+			ExpiresAt:  time.Now().Add(ttl),
+		}
+		c := client.New(xsrf)
+		if servers, err := client.DiscoverServers(c); err == nil && len(servers) > 0 {
+			vps.ServerID = servers[0].ID
+			vps.ServerName = servers[0].Name
+		}
+		acct.Servers = append(acct.Servers, vps)
+	}
+	mergeAccount(cfg, &acct)
+	if err := config.Save(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "save config: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Saved %d server(s) to config.\n", len(acct.Servers))
+}
+
+func mergeAccount(cfg *models.Config, acct *models.Account) {
+	if len(cfg.Accounts) == 0 {
+		cfg.Accounts = append(cfg.Accounts, *acct)
+		return
+	}
+	existing := make(map[string]bool)
+	for _, st := range cfg.Accounts[0].Servers {
+		existing[st.ServerID] = true
+	}
+	for _, st := range acct.Servers {
+		if !existing[st.ServerID] {
+			cfg.Accounts[0].Servers = append(cfg.Accounts[0].Servers, st)
+			existing[st.ServerID] = true
+		}
+	}
 }
 
 // --- list ---
@@ -174,7 +313,6 @@ var listCmd = &cobra.Command{
 			fmt.Println("No servers found.")
 			return
 		}
-		// Print table
 		fmt.Printf("%-12s %-20s %-10s %-8s %-18s %-5s %-6s %-6s %-16s\n",
 			"SERVER ID", "NAME", "STATE", "POWER", "OS", "CPU", "RAM", "DISK", "IP")
 		fmt.Println(strings.Repeat("-", 110))
@@ -290,7 +428,6 @@ var openCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, "no firewall policies for this server")
 				os.Exit(1)
 			}
-			// Parse port
 			var p int
 			fmt.Sscanf(port, "%d", &p)
 			if err := client.OpenPort(c, policies[0].ID, p, protocol, description); err != nil {
@@ -301,7 +438,6 @@ var openCmd = &cobra.Command{
 			return
 		}
 
-		// No server specified: apply to all
 		all, tokenMap, err := client.DiscoverAllServers(tokens)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "discover: %v\n", err)
@@ -335,7 +471,6 @@ var closeCmd = &cobra.Command{
 		serverID, _ := cmd.Flags().GetString("server")
 		cfg := loadConfig()
 
-		// If server specified, close there
 		if serverID != "" {
 			c := resolveClientForServer(cfg, serverID)
 			policies, err := client.ListFirewallPolicies(c)
@@ -360,7 +495,6 @@ var closeCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// Search all servers
 		tokens := resolveTokens(cfg)
 		all, tokenMap, err := client.DiscoverAllServers(tokens)
 		if err != nil {
@@ -413,6 +547,8 @@ func makeActionCmd(use, short string, action string) *cobra.Command {
 }
 
 func init() {
+	loginCmd.Flags().Bool("xsrf", false, "Register XSRF tokens directly (comma-separated)")
+	loginCmd.Flags().Bool("secure", false, "Use secure.piensasolutions.com session token")
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(listCmd)
 

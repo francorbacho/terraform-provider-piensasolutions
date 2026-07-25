@@ -11,23 +11,19 @@ import (
 	"github.com/fran/piensa/pkg/models"
 )
 
-type entrypointResponse struct {
-	Token string `json:"token"`
-}
-
 type serverItem struct {
-	ID         string            `json:"id"`
-	Properties serverProperties  `json:"properties"`
-	Related    relatedEntities   `json:"related_entities"`
+	ID         string           `json:"id"`
+	Properties serverProperties `json:"properties"`
+	Related    relatedEntities  `json:"related_entities"`
 }
 
 type serverProperties struct {
-	Name         string           `json:"name"`
-	State        string           `json:"state"`
-	PowerState   string           `json:"power_state"`
-	OSName       string           `json:"os_name"`
-	OSType       string           `json:"os_type"`
-	DatacenterID string           `json:"datacenter_id"`
+	Name         string                 `json:"name"`
+	State        string                 `json:"state"`
+	PowerState   string                 `json:"power_state"`
+	OSName       string                 `json:"os_name"`
+	OSType       string                 `json:"os_type"`
+	DatacenterID string                 `json:"datacenter_id"`
 	Resources    models.ServerResources `json:"resources"`
 }
 
@@ -36,7 +32,7 @@ type relatedEntities struct {
 }
 
 type ipItem struct {
-	ID         string      `json:"id"`
+	ID         string       `json:"id"`
 	Properties ipProperties `json:"properties"`
 }
 
@@ -53,7 +49,8 @@ type serversResponse struct {
 	NextOffset *int         `json:"next_offset"`
 }
 
-// DiscoverServers fetches all servers visible to a given X-TOKEN.
+// --- CloudPanel API (front-cloudpanel) ---
+
 func DiscoverServers(c *Client) ([]models.Server, error) {
 	resp, err := c.get(FrontPanelBase + "/pss/servers?depth=3")
 	if err != nil {
@@ -82,7 +79,7 @@ func DiscoverServers(c *Client) ([]models.Server, error) {
 			OSType:       item.Properties.OSType,
 			DatacenterID: item.Properties.DatacenterID,
 			Resources:    item.Properties.Resources,
-			Raw:          item,
+
 		}
 		for _, ip := range item.Related.IPs {
 			s.IPs = append(s.IPs, models.IPAddress{
@@ -98,128 +95,6 @@ func DiscoverServers(c *Client) ([]models.Server, error) {
 	return out, nil
 }
 
-// ValidateToken checks whether the X-TOKEN is still valid by calling entrypoint.
-// Returns the token from the response (should match) and the remaining TTL hint.
-func ValidateToken(c *Client) (bool, error) {
-	resp, err := c.get(FrontPanelBase + "/entrypoint")
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == 200, nil
-}
-
-// RefreshTokenViaPanellink obtains a fresh X-TOKEN for a specific contracted service.
-// It calls the secure panel's panellink endpoint with the secure token,
-// follows the redirect to loginuser.php, and extracts the new XSRF token.
-//
-// Steps:
-//  1. GET secure.piensasolutions.com/proxy.php?prxy=service/{idsco}/panellink
-//  2. Follow 302 to cloudpanel.piensasolutions.com/loginuser.php?token=...
-//  3. Parse Set-Cookie for X-XSRF-TOKEN
-func RefreshTokenViaPanellink(secureToken string, idsco string) (string, time.Duration, error) {
-	linkClient := New(secureToken).WithOrigin(SecurePanelBase)
-
-	// Step 1: get panellink URL
-	panellinkURL := fmt.Sprintf("%s/proxy.php?prxy=service/%s/panellink&lan=1",
-		SecurePanelBase, idsco)
-	resp, err := linkClient.get(panellinkURL)
-	if err != nil {
-		return "", 0, fmt.Errorf("panellink: %w", err)
-	}
-	body, err := readBody(resp)
-	if err != nil {
-		return "", 0, err
-	}
-	if err := checkStatus(resp); err != nil {
-		return "", 0, fmt.Errorf("panellink %s: %w", idsco, err)
-	}
-
-	var plResp struct {
-		Type   string `json:"type"`
-		Action string `json:"action"`
-	}
-	if err := json.Unmarshal(body, &plResp); err != nil {
-		return "", 0, fmt.Errorf("parse panellink: %w", err)
-	}
-	if plResp.Action == "" {
-		return "", 0, fmt.Errorf("empty panellink action")
-	}
-
-	// Step 2: follow redirect
-	loginURL := plResp.Action
-	if !strings.HasPrefix(loginURL, "https://") {
-		loginURL = CloudPanelBase + "/" + strings.TrimLeft(loginURL, "/")
-	}
-
-	anonClient := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	req, _ := http.NewRequest("GET", loginURL, nil)
-	req.Header.Set("User-Agent", "piensa-cli/1.0")
-	stepResp, err := anonClient.Do(req)
-	if err != nil {
-		return "", 0, fmt.Errorf("loginuser: %w", err)
-	}
-	defer stepResp.Body.Close()
-
-	if stepResp.StatusCode != 302 && stepResp.StatusCode != 200 {
-		return "", 0, fmt.Errorf("loginuser unexpected status: %d", stepResp.StatusCode)
-	}
-
-	// Step 3: follow the redirect to panel to get the session cookie with XSRF
-	var location string
-	if stepResp.StatusCode == 302 {
-		location = stepResp.Header.Get("Location")
-		if location == "" {
-			return "", 0, fmt.Errorf("no location header in redirect")
-		}
-		if !strings.HasPrefix(location, "https://") {
-			location = CloudPanelBase + "/" + strings.TrimLeft(location, "/")
-		}
-	}
-
-	// Follow to the panel page
-	finalResp, err := anonClient.Get(location)
-	if err != nil {
-		return "", 0, fmt.Errorf("panel redirect: %w", err)
-	}
-	defer finalResp.Body.Close()
-
-	// Extract XSRF token from cookies
-	for _, c := range finalResp.Cookies() {
-		if strings.Contains(c.Name, "piensasolutions") {
-			// Cookie value is URL-encoded JSON: j%3A%7B%22X-XSRF-TOKEN%22%3A...
-			decoded, err := url.QueryUnescape(c.Value)
-			if err != nil {
-				continue
-			}
-			if strings.HasPrefix(decoded, "j:") {
-				decoded = decoded[2:]
-			}
-			var cookieData map[string]interface{}
-			if err := json.Unmarshal([]byte(decoded), &cookieData); err != nil {
-				continue
-			}
-			if token, ok := cookieData["X-XSRF-TOKEN"].(string); ok && token != "" {
-				// XSRF timeout is in the cookie as well
-				var ttl time.Duration
-				if timeout, ok := cookieData["X-XSRF-TIMEOUT"].(float64); ok {
-					ttl = time.Duration(timeout) * time.Second
-				} else {
-					ttl = 55 * time.Minute // default safe estimate
-				}
-				return token, ttl, nil
-			}
-		}
-	}
-	return "", 0, fmt.Errorf("could not extract XSRF token from panel cookies")
-}
-
-// DiscoverAllServers tries each token in the account and returns all discovered servers.
-// It also returns a map of server ID → token index for later use.
 func DiscoverAllServers(tokens []string) ([]models.Server, map[string]string, error) {
 	var all []models.Server
 	tokenMap := make(map[string]string)
@@ -243,4 +118,165 @@ func DiscoverAllServers(tokens []string) ([]models.Server, map[string]string, er
 		}
 	}
 	return all, tokenMap, nil
+}
+
+// --- Secure Panel API (secure.piensasolutions.com proxy.php with HMAC) ---
+
+type servicioItem struct {
+	IDsco int    `json:"idsco"`
+	Des   string `json:"des"`
+	URL   string `json:"url"`
+	IDS   int    `json:"ids"`
+	Log   int64  `json:"log"`
+}
+
+type familiaItem struct {
+	IdFamilia int            `json:"IdFamilia"`
+	Servicios []servicioItem `json:"Servicios"`
+}
+
+// DiscoverServiceIDs calls proxy.php?prxy=service/list using HMAC auth.
+func DiscoverServiceIDs(sc *SecureClient) ([]servicioItem, error) {
+	u := fmt.Sprintf("%s/proxy.php?prxy=service/list&lan=1&_=%d",
+		SecurePanelBase, time.Now().UnixMilli())
+
+	resp, err := sc.Get(u)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp); err != nil {
+		return nil, fmt.Errorf("service/list: %w", err)
+	}
+	body, err := readBody(resp)
+	if err != nil {
+		return nil, err
+	}
+	var families []familiaItem
+	if err := json.Unmarshal(body, &families); err != nil {
+		return nil, fmt.Errorf("parse service/list: %w", err)
+	}
+	var out []servicioItem
+	for _, f := range families {
+		out = append(out, f.Servicios...)
+	}
+	return out, nil
+}
+
+type panellinkResponse struct {
+	Type    string `json:"type"`
+	Action  string `json:"action"`
+	Encoded string `json:"encoded"`
+}
+
+// PanellinkToXSRF calls the panellink endpoint and follows the chain to
+// get a cloudpanel XSRF token for a specific contracted service.
+//
+// Chain:
+//
+//	proxy.php?prxy=service/{idsco}/panellink
+//	  → JSON {"action":"https://cloudpanel/.../loginuser.php?token=..."}
+//	  → loginuser.php (302 + Set-Cookie: XSRF)
+//	  → panel page (extract XSRF from cookie)
+func PanellinkToXSRF(sc *SecureClient, idsco int) (string, time.Duration, error) {
+	u := fmt.Sprintf("%s/proxy.php?prxy=service/%d/panellink&lan=1&_=%d",
+		SecurePanelBase, idsco, time.Now().UnixMilli())
+
+	resp, err := sc.Get(u)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp); err != nil {
+		return "", 0, fmt.Errorf("panellink: %w", err)
+	}
+	body, err := readBody(resp)
+	if err != nil {
+		return "", 0, err
+	}
+	var pl panellinkResponse
+	if err := json.Unmarshal(body, &pl); err != nil {
+		return "", 0, fmt.Errorf("parse panellink: %w", err)
+	}
+	if pl.Action == "" {
+		return "", 0, fmt.Errorf("panellink: empty action")
+	}
+
+	loginURL := pl.Action
+	if !strings.HasPrefix(loginURL, "https://") {
+		loginURL = CloudPanelBase + "/" + strings.TrimLeft(loginURL, "/")
+	}
+
+	// Follow loginuser.php redirect
+	anonClient := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	loginResp, err := anonClient.Get(loginURL)
+	if err != nil {
+		return "", 0, fmt.Errorf("loginuser: %w", err)
+	}
+	loginResp.Body.Close()
+
+	if loginResp.StatusCode != 302 {
+		return "", 0, fmt.Errorf("loginuser: expected 302, got %d", loginResp.StatusCode)
+	}
+
+	panelPath := loginResp.Header.Get("Location")
+	if panelPath == "" {
+		return "", 0, fmt.Errorf("loginuser: no Location header")
+	}
+	panelURL := CloudPanelBase + "/" + strings.TrimLeft(panelPath, "/")
+
+	// Check loginuser for cookie first (in case it's set there)
+	if tok, ttl := parseXSRFFromCookies(loginResp.Cookies()); tok != "" {
+		return tok, ttl, nil
+	}
+
+	// Follow to panel page
+	followResp, err := anonClient.Get(panelURL)
+	if err != nil {
+		return "", 0, fmt.Errorf("panel: %w", err)
+	}
+	followResp.Body.Close()
+
+	if tok, ttl := parseXSRFFromCookies(followResp.Cookies()); tok != "" {
+		return tok, ttl, nil
+	}
+
+	return "", 0, fmt.Errorf("could not extract XSRF token from cookies")
+}
+
+func parseXSRFFromCookies(cookies []*http.Cookie) (string, time.Duration) {
+	for _, c := range cookies {
+		if !strings.Contains(c.Name, "piensasolutions") {
+			continue
+		}
+		decoded, err := url.QueryUnescape(c.Value)
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(decoded, "j:") {
+			decoded = decoded[2:]
+		}
+		var data map[string]interface{}
+		if err := json.Unmarshal([]byte(decoded), &data); err != nil {
+			continue
+		}
+		tok, _ := data["X-XSRF-TOKEN"].(string)
+		if tok == "" {
+			continue
+		}
+		var ttl time.Duration = 55 * time.Minute
+		if timeout, ok := data["X-XSRF-TIMEOUT"].(float64); ok && timeout > 0 {
+			ttl = time.Duration(timeout) * time.Second
+		}
+		return tok, ttl
+	}
+	return "", 0
+}
+
+// ValidateSecureToken checks whether the session is valid by calling service/list.
+func ValidateSecureToken(sc *SecureClient) bool {
+	_, err := DiscoverServiceIDs(sc)
+	return err == nil
 }

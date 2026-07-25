@@ -5,11 +5,6 @@ import (
 	"fmt"
 )
 
-type actionResponse struct {
-	ID         string                      `json:"id"`
-	Properties map[string]interface{}      `json:"properties"`
-}
-
 // RestartServer sends a reboot command.
 func RestartServer(c *Client, serverID string) error {
 	return putAction(c, serverID, "reboot")
