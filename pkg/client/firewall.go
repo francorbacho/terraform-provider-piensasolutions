@@ -84,19 +84,14 @@ func ListFirewallPolicies(c *Client) ([]models.FirewallPolicy, error) {
 
 // OpenPort creates a new ALLOW rule for a single port.
 func OpenPort(c *Client, policyID string, port int, protocol string, description string) error {
-	return OpenPortRange(c, policyID, port, port, protocol, description)
-}
-
-// OpenPortRange creates a new ALLOW rule for a port range.
-func OpenPortRange(c *Client, policyID string, portFrom, portTo int, protocol, description string) error {
 	body := map[string]interface{}{
 		"rules": []map[string]interface{}{
 			{
 				"action":      "ALLOW",
 				"allowed_ip":  "all",
 				"protocol":    protocol,
-				"port_from":   portFrom,
-				"port_to":     portTo,
+				"port_from":   port,
+				"port_to":     port,
 				"description": description,
 			},
 		},

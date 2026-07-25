@@ -34,11 +34,6 @@ func New(token string) *Client {
 	}
 }
 
-func (c *Client) WithOrigin(origin string) *Client {
-	c.origin = origin
-	return c
-}
-
 func (c *Client) do(method, url string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
