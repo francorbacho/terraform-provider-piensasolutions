@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -81,11 +80,6 @@ func resolveClientForServer(cfg *models.Config, serverID string) *client.Client 
 		os.Exit(1)
 	}
 	return client.New(st.Token)
-}
-
-func printJSON(v interface{}) {
-	b, _ := json.MarshalIndent(v, "", "  ")
-	fmt.Println(string(b))
 }
 
 // --- login ---
@@ -346,193 +340,136 @@ var listCmd = &cobra.Command{
 	},
 }
 
-// --- ports ---
+// --- firewall ---
 
-var portsCmd = &cobra.Command{
-	Use:   "ports",
-	Short: "List firewall rules for all servers",
+var firewallCmd = &cobra.Command{
+	Use:     "fw",
+	Aliases: []string{"firewall"},
+	Short:   "Manage firewall rules",
+	Long: `Show, allow, and deny firewall rules.
+
+Subcommands:
+  show          List firewall rules for all servers (default)
+  allow <srv> <port> [<protocol>]  Allow a port
+  deny  <srv> <port> [<protocol>]  Deny/close a port
+
+Run "piensa fw --help" for more details.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		cfg := loadConfig()
-		tokens := resolveTokens(cfg)
-		all, tokenMap, err := client.DiscoverAllServers(tokens)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "discover: %v\n", err)
-			os.Exit(1)
-		}
-
-		jsonFlag, _ := cmd.Flags().GetBool("json")
-
-		if jsonFlag {
-			type policyWithServer struct {
-				Policy   models.FirewallPolicy `json:"policy"`
-				ServerID string                `json:"server_id"`
-				Server   string                `json:"server_name"`
-			}
-			var result []policyWithServer
-			for _, s := range all {
-				c := client.New(tokenMap[s.ID])
-				policies, err := client.ListFirewallPolicies(c)
-				if err != nil {
-					continue
-				}
-				for _, p := range policies {
-					p.ServerID = s.ID
-					result = append(result, policyWithServer{Policy: p, ServerID: s.ID, Server: s.Name})
-				}
-			}
-			printJSON(result)
-			return
-		}
-
-		for _, s := range all {
-			c := client.New(tokenMap[s.ID])
-			policies, err := client.ListFirewallPolicies(c)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "firewall for %s: %v\n", s.Name, err)
-				continue
-			}
-			for _, p := range policies {
-				fmt.Printf("\nServer: %s  |  Policy: %s (%s)  [%s]\n", s.Name, p.Name, p.ID[:8], p.State)
-				if len(p.Rules) == 0 {
-					fmt.Println("  (no rules)")
-					continue
-				}
-				fmt.Printf("  %-12s %-8s %-6s %-12s %-12s  %s\n",
-					"RULE ID", "ACTION", "PROTO", "PORT", "ALLOWED IP", "DESCRIPTION")
-				fmt.Printf("  %s\n", strings.Repeat("-", 80))
-				for _, r := range p.Rules {
-					portStr := fmt.Sprintf("%d", r.PortFrom)
-					if r.PortTo != r.PortFrom {
-						portStr = fmt.Sprintf("%d-%d", r.PortFrom, r.PortTo)
-					}
-					shortID := r.ID[:8]
-					fmt.Printf("  %-12s %-8s %-6s %-12s %-12s  %s\n",
-						shortID, r.Action, r.Protocol, portStr, r.AllowedIP, r.Description)
-				}
-			}
-		}
+		showFirewall(cmd, args)
 	},
 }
 
-// --- open ---
+var fwShowCmd = &cobra.Command{
+	Use:   "show",
+	Short: "List firewall rules for all servers",
+	Run:   showFirewall,
+}
 
-var openCmd = &cobra.Command{
-	Use:   "open <port>",
-	Short: "Open a port in the firewall",
-	Args:  cobra.ExactArgs(1),
+var fwAllowCmd = &cobra.Command{
+	Use:   "allow <server> <port> [<protocol>]",
+	Short: "Allow a port on a server",
+	Args:  cobra.RangeArgs(2, 3),
 	Run: func(cmd *cobra.Command, args []string) {
-		port := args[0]
-		protocol, _ := cmd.Flags().GetString("protocol")
+		serverID := args[0]
+		portStr := args[1]
+		protocol := "TCP"
+		if len(args) > 2 {
+			protocol = args[2]
+		}
 		description, _ := cmd.Flags().GetString("description")
-		serverID, _ := cmd.Flags().GetString("server")
 
 		cfg := loadConfig()
-		tokens := resolveTokens(cfg)
-
-		if serverID != "" {
-			c := resolveClientForServer(cfg, serverID)
-			policies, err := client.ListFirewallPolicies(c)
-			if err != nil || len(policies) == 0 {
-				fmt.Fprintln(os.Stderr, "no firewall policies for this server")
-				os.Exit(1)
-			}
-			var p int
-			fmt.Sscanf(port, "%d", &p)
-			if err := client.OpenPort(c, policies[0].ID, p, protocol, description); err != nil {
-				fmt.Fprintf(os.Stderr, "open port: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Printf("Opened port %s/%s on %s\n", port, protocol, serverID)
-			return
-		}
-
-		all, tokenMap, err := client.DiscoverAllServers(tokens)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "discover: %v\n", err)
+		c := resolveClientForServer(cfg, serverID)
+		policies, err := client.ListFirewallPolicies(c)
+		if err != nil || len(policies) == 0 {
+			fmt.Fprintln(os.Stderr, "no firewall policies for this server")
 			os.Exit(1)
 		}
 		var p int
-		fmt.Sscanf(port, "%d", &p)
-		for _, s := range all {
-			c := client.New(tokenMap[s.ID])
-			policies, err := client.ListFirewallPolicies(c)
-			if err != nil || len(policies) == 0 {
-				continue
-			}
-			if err := client.OpenPort(c, policies[0].ID, p, protocol, description); err != nil {
-				fmt.Fprintf(os.Stderr, "open port on %s: %v\n", s.Name, err)
-				continue
-			}
-			fmt.Printf("Opened port %s/%s on %s (%s)\n", port, protocol, s.Name, s.ID[:8])
+		fmt.Sscanf(portStr, "%d", &p)
+		if err := client.OpenPort(c, policies[0].ID, p, protocol, description); err != nil {
+			fmt.Fprintf(os.Stderr, "allow port: %v\n", err)
+			os.Exit(1)
 		}
+		fmt.Printf("Allowed %s/%s on %s\n", portStr, protocol, serverID)
 	},
 }
 
-// --- close ---
-
-var closeCmd = &cobra.Command{
-	Use:   "close <rule-id>",
-	Short: "Close a firewall port by rule ID",
-	Args:  cobra.ExactArgs(1),
+var fwDenyCmd = &cobra.Command{
+	Use:   "deny <server> <port> [<protocol>]",
+	Short: "Deny/close a port on a server",
+	Args:  cobra.RangeArgs(2, 3),
 	Run: func(cmd *cobra.Command, args []string) {
-		ruleID := args[0]
-		serverID, _ := cmd.Flags().GetString("server")
+		serverID := args[0]
+		portStr := args[1]
+		protocol := "TCP"
+		if len(args) > 2 {
+			protocol = args[2]
+		}
+
 		cfg := loadConfig()
-
-		if serverID != "" {
-			c := resolveClientForServer(cfg, serverID)
-			policies, err := client.ListFirewallPolicies(c)
-			if err != nil || len(policies) == 0 {
-				fmt.Fprintln(os.Stderr, "no firewall policies")
-				os.Exit(1)
-			}
-			for _, p := range policies {
-				for _, r := range p.Rules {
-					if strings.HasPrefix(r.ID, ruleID) || r.ID == ruleID {
-						if err := client.ClosePort(c, p.ID, r.ID); err != nil {
-							fmt.Fprintf(os.Stderr, "close: %v\n", err)
-							os.Exit(1)
-						}
-						fmt.Printf("Closed rule %s (%s/%d) on %s\n",
-							r.ID[:8], r.Protocol, r.PortFrom, serverID)
-						return
-					}
-				}
-			}
-			fmt.Fprintf(os.Stderr, "rule %s not found\n", ruleID)
+		c := resolveClientForServer(cfg, serverID)
+		policies, err := client.ListFirewallPolicies(c)
+		if err != nil || len(policies) == 0 {
+			fmt.Fprintln(os.Stderr, "no firewall policies for this server")
 			os.Exit(1)
 		}
-
-		tokens := resolveTokens(cfg)
-		all, tokenMap, err := client.DiscoverAllServers(tokens)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "discover: %v\n", err)
-			os.Exit(1)
-		}
-		for _, s := range all {
-			c := client.New(tokenMap[s.ID])
-			policies, err := client.ListFirewallPolicies(c)
-			if err != nil {
-				continue
-			}
-			for _, p := range policies {
-				for _, r := range p.Rules {
-					if strings.HasPrefix(r.ID, ruleID) || r.ID == ruleID {
-						if err := client.ClosePort(c, p.ID, r.ID); err != nil {
-							fmt.Fprintf(os.Stderr, "error closing rule %s on %s: %v\n",
-								r.ID[:8], s.Name, err)
-							os.Exit(1)
-						}
-						fmt.Printf("Closed rule %s (%s/%d) on %s (%s)\n",
-							r.ID[:8], r.Protocol, r.PortFrom, s.Name, s.ID[:8])
-						return
+		var p int
+		fmt.Sscanf(portStr, "%d", &p)
+		for _, pol := range policies {
+			for _, r := range pol.Rules {
+				if r.PortFrom == p && r.PortTo == p && strings.EqualFold(string(r.Protocol), protocol) {
+					if err := client.ClosePort(c, pol.ID, r.ID); err != nil {
+						fmt.Fprintf(os.Stderr, "deny port: %v\n", err)
+						os.Exit(1)
 					}
+					fmt.Printf("Denied %s/%s on %s (rule %s)\n",
+						portStr, protocol, serverID, r.ID[:8])
+					return
 				}
 			}
 		}
-		fmt.Fprintf(os.Stderr, "rule %s not found on any server\n", ruleID)
+		fmt.Fprintf(os.Stderr, "no allow rule found for port %s/%s on %s\n", portStr, protocol, serverID)
 		os.Exit(1)
 	},
+}
+
+func showFirewall(cmd *cobra.Command, args []string) {
+	cfg := loadConfig()
+	tokens := resolveTokens(cfg)
+	all, tokenMap, err := client.DiscoverAllServers(tokens)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "discover: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, s := range all {
+		c := client.New(tokenMap[s.ID])
+		policies, err := client.ListFirewallPolicies(c)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "firewall for %s: %v\n", s.Name, err)
+			continue
+		}
+		for _, p := range policies {
+			fmt.Printf("\nServer: %s  |  Policy: %s (%s)  [%s]\n", s.Name, p.Name, p.ID[:8], p.State)
+			if len(p.Rules) == 0 {
+				fmt.Println("  (no rules)")
+				continue
+			}
+			fmt.Printf("  %-12s %-8s %-6s %-12s %-12s  %s\n",
+				"RULE ID", "ACTION", "PROTO", "PORT", "ALLOWED IP", "DESCRIPTION")
+			fmt.Printf("  %s\n", strings.Repeat("-", 80))
+			for _, r := range p.Rules {
+				portStr := fmt.Sprintf("%d", r.PortFrom)
+				if r.PortTo != r.PortFrom {
+					portStr = fmt.Sprintf("%d-%d", r.PortFrom, r.PortTo)
+				}
+				shortID := r.ID[:8]
+				fmt.Printf("  %-12s %-8s %-6s %-12s %-12s  %s\n",
+					shortID, r.Action, r.Protocol, portStr, r.AllowedIP, r.Description)
+			}
+		}
+	}
 }
 
 // --- restart / start / shutdown / suspend / resume ---
@@ -561,16 +498,11 @@ func init() {
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(listCmd)
 
-	portsCmd.Flags().BoolP("json", "j", false, "JSON output")
-	rootCmd.AddCommand(portsCmd)
-
-	openCmd.Flags().StringP("protocol", "p", "TCP", "Protocol (TCP, UDP)")
-	openCmd.Flags().StringP("description", "d", "", "Description")
-	openCmd.Flags().StringP("server", "s", "", "Server ID (apply to all if empty)")
-	rootCmd.AddCommand(openCmd)
-
-	closeCmd.Flags().StringP("server", "s", "", "Server ID (search all if empty)")
-	rootCmd.AddCommand(closeCmd)
+	fwAllowCmd.Flags().StringP("description", "d", "", "Description for the allow rule")
+	firewallCmd.AddCommand(fwShowCmd)
+	firewallCmd.AddCommand(fwAllowCmd)
+	firewallCmd.AddCommand(fwDenyCmd)
+	rootCmd.AddCommand(firewallCmd)
 
 	rootCmd.AddCommand(makeActionCmd("restart", "Restart a server", "reboot"))
 	rootCmd.AddCommand(makeActionCmd("start", "Start a server", "start"))
