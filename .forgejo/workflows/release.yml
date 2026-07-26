@@ -37,8 +37,13 @@ jobs:
           GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.version=${VERSION}" -o "dist/piensa-darwin-amd64"  ./cmd/piensa/
           GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.version=${VERSION}" -o "dist/piensa-darwin-arm64"  ./cmd/piensa/
 
-          GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=${VERSION}" -o "dist/terraform-provider-piensa-linux-amd64" ./cmd/terraform-provider-piensa/
-          GOOS=linux GOARCH=arm64 go build -ldflags "-X main.version=${VERSION}" -o "dist/terraform-provider-piensa-linux-arm64" ./cmd/terraform-provider-piensa/
+          # Build provider binaries and package into Forgejo-compatible tar.gz
+          for GOOS in linux; do
+            for GOARCH in amd64 arm64; do
+              GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X main.version=${VERSION}" -o "/tmp/terraform-provider-piensa_v${VERSION}_${GOOS}_${GOARCH}" ./cmd/terraform-provider-piensa/
+              tar czf "dist/terraform-provider-piensa_${VERSION}_${GOOS}_${GOARCH}.tar.gz" -C /tmp "terraform-provider-piensa_v${VERSION}_${GOOS}_${GOARCH}"
+            done
+          done
 
           cd dist
           for f in *; do
