@@ -73,14 +73,8 @@ jobs:
           done
 
           # Write registry manifest
-          cat > "dist/terraform-provider-${PROVIDER_NAME}_${VERSION}_manifest.json" <<EOF
-      {
-        "version": 1,
-        "metadata": {
-          "protocol_versions": ["5.0"]
-        }
-      }
-      EOF
+          jq -n '{version:1,metadata:{protocol_versions:["5.0"]}}' \
+            > "dist/terraform-provider-${PROVIDER_NAME}_${VERSION}_manifest.json"
 
           # Generate checksums
           cd dist
