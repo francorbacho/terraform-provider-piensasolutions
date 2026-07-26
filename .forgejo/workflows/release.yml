@@ -8,8 +8,6 @@ on:
 jobs:
   release:
     runs-on: docker
-    container:
-      image: docker.io/library/alpine:latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,7 +49,32 @@ jobs:
           done
 
       - name: Create release
-        uses: gitea/release-action@v1
-        with:
-          files: dist/*
-          api_key: ${{ secrets.GITHUB_TOKEN }}
+        shell: sh
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+
+          # Create the release
+          curl -s -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$(cat <<EOF
+          {
+            "tag_name": "${TAG}",
+            "name": "${TAG}",
+            "body": "Release ${TAG}"
+          }
+          EOF
+          )" \
+            "${API}/releases" > /tmp/release.json
+
+          RELEASE_ID=$(python3 -c "import json,sys; print(json.load(sys.stdin)['id'])" < /tmp/release.json)
+
+          # Upload each asset
+          for f in dist/*; do
+            echo "Uploading ${f}..."
+            curl -s -X POST \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -F "attachment=@${f}" \
+              "${API}/releases/${RELEASE_ID}/assets?name=$(basename "${f}")" > /dev/null
+          done
