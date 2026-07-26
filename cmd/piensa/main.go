@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/fran/piensa/pkg/client"
 	"github.com/fran/piensa/pkg/config"
@@ -14,10 +13,13 @@ import (
 	"golang.org/x/term"
 )
 
+var version string
+
 var rootCmd = &cobra.Command{
-	Use:   "piensa",
-	Short: "PiensaSolutions VPS manager",
-	Long:  `Manage your PiensaSolutions VPS servers, ports, and firewall rules.`,
+	Use:     "piensa",
+	Short:   "PiensaSolutions VPS manager",
+	Long:    `Manage your PiensaSolutions VPS servers, ports, and firewall rules.`,
+	Version: version,
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
@@ -90,27 +92,14 @@ var loginCmd = &cobra.Command{
 	Long: `Log in with NIF, password, and 2FA code.
 
 The CLI will:
-  1. Authenticate with your credentials
-  2. Discover your VPS servers
-  3. Generate per-VPS access tokens
-  4. Save them to config
+   1. Authenticate with your credentials
+   2. Discover your VPS servers
+   3. Generate per-VPS access tokens
+   4. Save them to config
 
-Per-VPS tokens last ~1 hour. Run "piensa login" again to refresh.
-
-You can also use --xsrf to register tokens directly, or
---secure with a secure.piensasolutions.com session token.`,
+Per-VPS tokens last ~1 hour. Run "piensa login" again to refresh.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		xsrfMode, _ := cmd.Flags().GetBool("xsrf")
-		secureMode, _ := cmd.Flags().GetBool("secure")
-
-		switch {
-		case xsrfMode:
-			loginXSRF(cmd)
-		case secureMode:
-			loginSecure(cmd)
-		default:
-			loginInteractive(cmd)
-		}
+		loginInteractive(cmd)
 	},
 }
 
@@ -172,110 +161,6 @@ func loginInteractive(cmd *cobra.Command) {
 	}
 	fmt.Printf("Logged in. %d VPS server(s) configured.\n", len(vps))
 	fmt.Println("Tokens expire in ~1h. Run 'piensa login' to refresh.")
-}
-
-// loginXSRF is the old flow: paste comma-separated XSRF tokens
-func loginXSRF(cmd *cobra.Command) {
-	raw := ""
-	args := cmd.Flags().Args()
-	if len(args) > 0 {
-		raw = args[0]
-	} else {
-		fmt.Print("Paste X-TOKEN(s) (comma-separated): ")
-		fmt.Scanln(&raw)
-	}
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		fmt.Fprintln(os.Stderr, "no token provided")
-		os.Exit(1)
-	}
-
-	tokens := strings.Split(raw, ",")
-	for i := range tokens {
-		tokens[i] = strings.TrimSpace(tokens[i])
-	}
-
-	all, tokenMap, err := client.DiscoverAllServers(tokens)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "discovery: %v\n", err)
-		os.Exit(1)
-	}
-
-	cfg := loadConfig()
-	acct := models.Account{}
-	for _, s := range all {
-		acct.Servers = append(acct.Servers, models.ServerToken{
-			ServerID:   s.ID,
-			ServerName: s.Name,
-			Token:      tokenMap[s.ID],
-		})
-	}
-	mergeAccount(cfg, &acct)
-	if err := config.Save(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "save config: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("Saved %d server(s) to config.\n", len(all))
-}
-
-// loginSecure uses a secure.piensasolutions.com session token
-func loginSecure(cmd *cobra.Command) {
-	args := cmd.Flags().Args()
-	token := ""
-	if len(args) > 0 {
-		token = args[0]
-	} else {
-		fmt.Print("Paste secure.piensasolutions.com X-TOKEN: ")
-		fmt.Scanln(&token)
-	}
-	token = strings.TrimSpace(token)
-	if token == "" {
-		fmt.Fprintln(os.Stderr, "no token provided")
-		os.Exit(1)
-	}
-
-	fmt.Print("Paste pvtKey cookie value: ")
-	var pvtKey string
-	fmt.Scanln(&pvtKey)
-	pvtKey = strings.TrimSpace(pvtKey)
-
-	sc := client.NewSecure(token, pvtKey)
-	if !client.ValidateSecureToken(sc) {
-		fmt.Fprintln(os.Stderr, "session expired or invalid")
-		os.Exit(1)
-	}
-
-	services, err := client.DiscoverServiceIDs(sc)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "discover: %v\n", err)
-		os.Exit(1)
-	}
-
-	cfg := loadConfig()
-	acct := models.Account{}
-	for _, svc := range services {
-		xsrf, ttl, err := client.PanellinkToXSRF(sc, svc.IDsco)
-		if err != nil {
-			continue
-		}
-		vps := models.ServerToken{
-			ServerName: svc.Des,
-			Token:      xsrf,
-			ExpiresAt:  time.Now().Add(ttl),
-		}
-		c := client.New(xsrf)
-		if servers, err := client.DiscoverServers(c); err == nil && len(servers) > 0 {
-			vps.ServerID = servers[0].ID
-			vps.ServerName = servers[0].Name
-		}
-		acct.Servers = append(acct.Servers, vps)
-	}
-	mergeAccount(cfg, &acct)
-	if err := config.Save(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "save config: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("Saved %d server(s) to config.\n", len(acct.Servers))
 }
 
 func mergeAccount(cfg *models.Config, acct *models.Account) {
@@ -387,6 +272,14 @@ var fwAllowCmd = &cobra.Command{
 		}
 		var p int
 		fmt.Sscanf(portStr, "%d", &p)
+		for _, pol := range policies {
+			for _, r := range pol.Rules {
+				if r.PortFrom == p && r.PortTo == p && strings.EqualFold(string(r.Protocol), protocol) {
+					fmt.Fprintf(os.Stderr, "port %s/%s is already allowed on %s\n", portStr, protocol, serverID)
+					os.Exit(1)
+				}
+			}
+		}
 		if err := client.OpenPort(c, policies[0].ID, p, protocol, description); err != nil {
 			fmt.Fprintf(os.Stderr, "allow port: %v\n", err)
 			os.Exit(1)
@@ -480,21 +373,24 @@ func makeActionCmd(use, short string, action string) *cobra.Command {
 		Short: short,
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			serverID := args[0]
+			inputID := args[0]
 			cfg := loadConfig()
-			c := resolveClientForServer(cfg, serverID)
-			if _, err := client.RawServerAction(c, serverID, action); err != nil {
+			_, st := config.FindAccountByServerID(cfg, inputID)
+			if st == nil {
+				fmt.Fprintf(os.Stderr, "no token for server %s\n", inputID)
+				os.Exit(1)
+			}
+			c := client.New(st.Token)
+			if _, err := client.RawServerAction(c, st.ServerID, action); err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %v\n", action, err)
 				os.Exit(1)
 			}
-			fmt.Printf("%s initiated for %s\n", action, serverID[:8])
+			fmt.Printf("%s initiated for %s\n", action, st.ServerID[:8])
 		},
 	}
 }
 
 func init() {
-	loginCmd.Flags().Bool("xsrf", false, "Register XSRF tokens directly (comma-separated)")
-	loginCmd.Flags().Bool("secure", false, "Use secure.piensasolutions.com session token")
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(listCmd)
 

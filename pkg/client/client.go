@@ -34,11 +34,6 @@ func New(token string) *Client {
 	}
 }
 
-func (c *Client) WithOrigin(origin string) *Client {
-	c.origin = origin
-	return c
-}
-
 func (c *Client) do(method, url string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
@@ -93,7 +88,11 @@ func checkStatus(resp *http.Response) error {
 		return nil
 	}
 	body, _ := readBody(resp)
-	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	msg := strings.TrimSpace(string(body))
+	if resp.StatusCode == 409 {
+		return fmt.Errorf("server is busy, try again in a few seconds")
+	}
+	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
 }
 
 // --- HMAC client for secure.piensasolutions.com ---

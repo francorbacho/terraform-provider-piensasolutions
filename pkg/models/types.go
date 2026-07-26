@@ -3,35 +3,9 @@ package models
 import "time"
 
 type PowerState string
-
-const (
-	PowerOn  PowerState = "ON"
-	PowerOff PowerState = "OFF"
-)
-
 type ServerState string
-
-const (
-	StateActive       ServerState = "ACTIVE"
-	StateConfiguring  ServerState = "CONFIGURING"
-	StateSuspended    ServerState = "SUSPENDED"
-	StateDisabled     ServerState = "DISABLED"
-)
-
 type Protocol string
-
-const (
-	ProtocolTCP Protocol = "TCP"
-	ProtocolUDP Protocol = "UDP"
-	ProtocolICMP Protocol = "ICMP"
-)
-
 type RuleAction string
-
-const (
-	RuleActionAllow RuleAction = "ALLOW"
-	RuleActionDeny  RuleAction = "DENY"
-)
 
 type ServerResources struct {
 	CPU  int     `json:"cpu"`
@@ -70,11 +44,10 @@ type FirewallRule struct {
 }
 
 type FirewallPolicy struct {
-	ID     string         `json:"id"`
-	Name   string         `json:"name"`
-	State  ServerState    `json:"state"`
-	Rules  []FirewallRule `json:"rules"`
-	ServerID string       `json:"server_id,omitempty"`
+	ID    string         `json:"id"`
+	Name  string         `json:"name"`
+	State ServerState    `json:"state"`
+	Rules []FirewallRule `json:"rules"`
 }
 
 type ServerToken struct {
