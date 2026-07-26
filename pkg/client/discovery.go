@@ -99,6 +99,7 @@ func DiscoverAllServers(tokens []string) ([]models.Server, map[string]string, er
 	var all []models.Server
 	tokenMap := make(map[string]string)
 	seen := make(map[string]bool)
+	var lastErr error
 
 	if Verbose {
 		fmt.Printf("[verbose] DiscoverAllServers: %d tokens\n", len(tokens))
@@ -106,9 +107,6 @@ func DiscoverAllServers(tokens []string) ([]models.Server, map[string]string, er
 
 	for _, tok := range tokens {
 		if tok == "" {
-			if Verbose {
-				fmt.Printf("[verbose]   skipping empty token\n")
-			}
 			continue
 		}
 		if Verbose {
@@ -117,6 +115,7 @@ func DiscoverAllServers(tokens []string) ([]models.Server, map[string]string, er
 		c := New(tok)
 		servers, err := DiscoverServers(c)
 		if err != nil {
+			lastErr = err
 			if Verbose {
 				fmt.Printf("[verbose]     error: %v\n", err)
 			}
@@ -139,6 +138,9 @@ func DiscoverAllServers(tokens []string) ([]models.Server, map[string]string, er
 				}
 			}
 		}
+	}
+	if len(all) == 0 && lastErr != nil {
+		return nil, nil, lastErr
 	}
 	return all, tokenMap, nil
 }
