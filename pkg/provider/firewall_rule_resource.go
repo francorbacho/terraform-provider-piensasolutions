@@ -32,6 +32,7 @@ func firewallRuleResource() *schema.Resource {
 			"description": {
 				Type:     schema.TypeString,
 				Optional: true,
+				Computed: true,
 				ForceNew: true,
 			},
 			"action": {

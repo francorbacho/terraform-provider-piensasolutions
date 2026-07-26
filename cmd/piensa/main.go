@@ -13,10 +13,13 @@ import (
 	"golang.org/x/term"
 )
 
+var version string
+
 var rootCmd = &cobra.Command{
-	Use:   "piensa",
-	Short: "PiensaSolutions VPS manager",
-	Long:  `Manage your PiensaSolutions VPS servers, ports, and firewall rules.`,
+	Use:     "piensa",
+	Short:   "PiensaSolutions VPS manager",
+	Long:    `Manage your PiensaSolutions VPS servers, ports, and firewall rules.`,
+	Version: version,
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
