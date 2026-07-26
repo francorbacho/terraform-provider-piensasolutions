@@ -9,11 +9,15 @@ jobs:
   release:
     runs-on: docker
     container:
-      image: golang:1.26
+      image: docker.io/library/alpine:latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
 
       - name: Build binaries
         run: |
