@@ -234,7 +234,7 @@ var listCmd = &cobra.Command{
 		tokens := resolveTokens(cfg)
 		all, _, err := client.DiscoverAllServers(tokens)
 		if err != nil {
-			if strings.Contains(err.Error(), "HTTP 401") {
+			if strings.Contains(err.Error(), "HTTP 403") || strings.Contains(err.Error(), "HTTP 401") {
 				fmt.Fprintln(os.Stderr, "Tokens expired. Run: piensa login")
 			} else {
 				fmt.Fprintf(os.Stderr, "discover: %v\n", err)
@@ -377,7 +377,7 @@ func showFirewall(cmd *cobra.Command, args []string) {
 	tokens := resolveTokens(cfg)
 	all, tokenMap, err := client.DiscoverAllServers(tokens)
 	if err != nil {
-		if strings.Contains(err.Error(), "HTTP 401") {
+		if strings.Contains(err.Error(), "HTTP 403") || strings.Contains(err.Error(), "HTTP 401") {
 			fmt.Fprintln(os.Stderr, "Tokens expired. Run: piensa login")
 		} else {
 			fmt.Fprintf(os.Stderr, "discover: %v\n", err)
