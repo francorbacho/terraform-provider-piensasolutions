@@ -46,7 +46,6 @@ func firewallRuleResource() *schema.Resource {
 		CreateContext: firewallRuleCreate,
 		ReadContext:   firewallRuleRead,
 		DeleteContext: firewallRuleDelete,
-		UpdateContext: firewallRuleUpdate,
 		Importer: &schema.ResourceImporter{
 			StateContext: firewallRuleImport,
 		},
@@ -71,19 +70,19 @@ func ruleID(serverID, protocol string, port int) string {
 	return fmt.Sprintf("%s:%d:%s", serverID, port, protocol)
 }
 
-func findRule(c *client.Client, port int, protocol string) (ruleUUID, policyID, allowedIP string, err error) {
+func findRule(c *client.Client, port int, protocol string) (ruleUUID, policyID, allowedIP, description string, err error) {
 	policies, err := client.ListFirewallPolicies(c)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	for _, p := range policies {
 		for _, r := range p.Rules {
 			if r.PortFrom == port && r.PortTo == port && strings.EqualFold(string(r.Protocol), protocol) {
-				return r.ID, p.ID, string(r.AllowedIP), nil
+				return r.ID, p.ID, string(r.AllowedIP), r.Description, nil
 			}
 		}
 	}
-	return "", "", "", nil
+	return "", "", "", "", nil
 }
 
 func firewallRuleCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
@@ -123,7 +122,7 @@ func firewallRuleRead(_ context.Context, d *schema.ResourceData, m interface{}) 
 		return diags
 	}
 
-	ruleUUID, _, allowedIP, err := findRule(c, port, protocol)
+	ruleUUID, _, allowedIP, description, err := findRule(c, port, protocol)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("read firewall rule: %w", err))
 	}
@@ -135,6 +134,7 @@ func firewallRuleRead(_ context.Context, d *schema.ResourceData, m interface{}) 
 	d.Set("server_id", serverID)
 	d.Set("protocol", protocol)
 	d.Set("port", port)
+	d.Set("description", description)
 	d.Set("action", "ALLOW")
 	d.Set("allowed_ip", allowedIP)
 	return nil
@@ -152,7 +152,7 @@ func firewallRuleDelete(_ context.Context, d *schema.ResourceData, m interface{}
 		return diags
 	}
 
-	ruleUUID, policyID, _, err := findRule(c, port, protocol)
+	ruleUUID, policyID, _, _, err := findRule(c, port, protocol)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("delete firewall rule (find): %w", err))
 	}
@@ -167,10 +167,6 @@ func firewallRuleDelete(_ context.Context, d *schema.ResourceData, m interface{}
 
 	d.SetId("")
 	return nil
-}
-
-func firewallRuleUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	return diag.Errorf("firewall rule attributes are immutable, recreate with 'terraform taint'")
 }
 
 func firewallRuleImport(_ context.Context, d *schema.ResourceData, m interface{}) ([]*schema.ResourceData, error) {

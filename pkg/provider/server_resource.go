@@ -49,7 +49,6 @@ func serverResource() *schema.Resource {
 		},
 		CreateContext: serverCreate,
 		ReadContext:   serverRead,
-		UpdateContext: serverUpdate,
 		DeleteContext: serverDelete,
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
@@ -101,10 +100,6 @@ func serverRead(_ context.Context, d *schema.ResourceData, m interface{}) diag.D
 	d.Set("ip_addresses", ips)
 
 	return nil
-}
-
-func serverUpdate(_ context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	return diag.Errorf("piensa_server cannot be updated")
 }
 
 func serverDelete(_ context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
