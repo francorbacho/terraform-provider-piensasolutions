@@ -1,4 +1,5 @@
 /piensa
+/terraform-provider-piensa
 *.out
 *.test
 *.har
