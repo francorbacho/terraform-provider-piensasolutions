@@ -15,11 +15,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
+      - name: Install Go
+        shell: sh
+        run: |
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            aarch64) GOARCH=arm64 ;;
+            x86_64)  GOARCH=amd64 ;;
+            *)       echo "unsupported arch: $ARCH"; exit 1 ;;
+          esac
+          wget -q "https://go.dev/dl/go1.26.5.linux-${GOARCH}.tar.gz" -O /tmp/go.tar.gz
+          tar xzf /tmp/go.tar.gz -C /usr/local
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
 
       - name: Build binaries
+        shell: sh
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
