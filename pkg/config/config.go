@@ -11,11 +11,15 @@ import (
 )
 
 const (
-	configDir  = ".config/piensa"
-	configFile = "config.json"
+	configDir    = ".config/piensa"
+	configFile   = "config.json"
+	envConfigPath = "PIENSA_CONFIG_PATH"
 )
 
 func configPath() (string, error) {
+	if p := os.Getenv(envConfigPath); p != "" {
+		return p, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("home dir: %w", err)

@@ -29,6 +29,9 @@ var rootCmd = &cobra.Command{
 
 var tokenFlag string
 var verboseFlag bool
+var loginNIF string
+var loginPassword string
+var loginCode string
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&tokenFlag, "token", "t", "", "X-TOKEN (overrides config)")
@@ -97,9 +100,18 @@ The CLI will:
    3. Generate per-VPS access tokens
    4. Save them to config
 
-Per-VPS tokens last ~1 hour. Run "piensa login" again to refresh.`,
+Per-VPS tokens last ~1 hour. Run "piensa login" again to refresh.
+
+Flags:
+  --nif       NIF (omit for interactive prompt)
+  --password  Password (omit for interactive prompt)
+  --2fa       2FA code (omit for interactive prompt)`,
 	Run: func(cmd *cobra.Command, args []string) {
-		loginInteractive(cmd)
+		if loginNIF != "" && loginPassword != "" && loginCode != "" {
+			loginNonInteractive()
+		} else {
+			loginInteractive(cmd)
+		}
 	},
 }
 
@@ -161,6 +173,35 @@ func loginInteractive(cmd *cobra.Command) {
 	}
 	fmt.Printf("Logged in. %d VPS server(s) configured.\n", len(vps))
 	fmt.Println("Tokens expire in ~1h. Run 'piensa login' to refresh.")
+}
+
+func loginNonInteractive() {
+	vps, err := client.FullLogin(client.LoginCredentials{
+		NIF:      loginNIF,
+		Password: loginPassword,
+		Code:     loginCode,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "login: %v\n", err)
+		os.Exit(1)
+	}
+
+	cfg := loadConfig()
+	acct := models.Account{NIF: loginNIF}
+	for _, v := range vps {
+		acct.Servers = append(acct.Servers, models.ServerToken{
+			ServerID:   v.ServerUUID,
+			ServerName: v.Name,
+			Token:      v.XSRFToken,
+			ExpiresAt:  v.ExpiresAt,
+		})
+	}
+	mergeAccount(cfg, &acct)
+	if err := config.Save(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "save config: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Logged in. %d VPS server(s) configured.\n", len(vps))
 }
 
 func mergeAccount(cfg *models.Config, acct *models.Account) {
@@ -392,6 +433,9 @@ func makeActionCmd(use, short string, action string) *cobra.Command {
 
 func init() {
 	rootCmd.AddCommand(loginCmd)
+	loginCmd.Flags().StringVar(&loginNIF, "nif", "", "NIF for non-interactive login")
+	loginCmd.Flags().StringVar(&loginPassword, "password", "", "Password for non-interactive login")
+	loginCmd.Flags().StringVar(&loginCode, "2fa", "", "2FA code for non-interactive login")
 	rootCmd.AddCommand(listCmd)
 
 	fwAllowCmd.Flags().StringP("description", "d", "", "Description for the allow rule")
