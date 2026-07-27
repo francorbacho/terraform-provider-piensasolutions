@@ -64,17 +64,17 @@ jobs:
               mkdir -p "$dir/usr/bin"
               cp "dist/${binary}" "$dir/usr/bin/piensa"
               SIZE=$(wc -c < "dist/${binary}")
-              cat > "$dir/.PKGINFO" <<EOF
-pkgname = piensa
-pkgver = ${VERSION}-1
-pkgdesc = PiensaSolutions VPS manager CLI
-url = https://github.com/francorbacho/terraform-provider-piensasolutions
-builddate = $(date +%s)
-packager = CI Runner
-size = ${SIZE}
-arch = ${arch}
-license = MIT
-EOF
+              {
+                echo "pkgname = piensa"
+                echo "pkgver = ${VERSION}-1"
+                echo "pkgdesc = PiensaSolutions VPS manager CLI"
+                echo "url = https://github.com/francorbacho/terraform-provider-piensasolutions"
+                echo "builddate = $(date +%s)"
+                echo "packager = CI Runner"
+                echo "size = ${SIZE}"
+                echo "arch = ${arch}"
+                echo "license = MIT"
+              } > "$dir/.PKGINFO"
               tar -cf - -C "$dir" usr .PKGINFO | zstd -o "dist/${pkg}.pkg.tar.zst"
               rm -rf "$dir"
             }
