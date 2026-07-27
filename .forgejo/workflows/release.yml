@@ -47,6 +47,43 @@ jobs:
             done
           done
 
+          # Build Arch Linux packages (.pkg.tar.zst) from pre-built CLI binaries.
+          # Install zstd if not available (tolerate failure on non-Arch runners).
+          (command -v zstd >/dev/null 2>&1) || \
+            (command -v apt-get >/dev/null 2>&1 && apt-get update -qq && apt-get install -y -qq zstd) || \
+            (command -v apk    >/dev/null 2>&1 && apk add --no-cache zstd) || \
+            (command -v pacman >/dev/null 2>&1 && pacman -S --noconfirm zstd) || \
+            true
+
+          if command -v zstd >/dev/null 2>&1; then
+            arch_pkg() {
+              local arch=$1 binary=$2
+              local pkg="piensa-${VERSION}-1-${arch}"
+              local dir="/tmp/arch-pkg"
+              rm -rf "$dir"
+              mkdir -p "$dir/usr/bin"
+              cp "dist/${binary}" "$dir/usr/bin/piensa"
+              SIZE=$(wc -c < "dist/${binary}")
+              cat > "$dir/.PKGINFO" <<EOF
+pkgname = piensa
+pkgver = ${VERSION}-1
+pkgdesc = PiensaSolutions VPS manager CLI
+url = https://github.com/francorbacho/terraform-provider-piensasolutions
+builddate = $(date +%s)
+packager = CI Runner
+size = ${SIZE}
+arch = ${arch}
+license = MIT
+EOF
+              tar -cf - -C "$dir" usr .PKGINFO | zstd -o "dist/${pkg}.pkg.tar.zst"
+              rm -rf "$dir"
+            }
+            arch_pkg x86_64  piensa-linux-amd64
+            arch_pkg aarch64 piensa-linux-arm64
+          else
+            echo "zstd not found - skipping Arch Linux packages"
+          fi
+
           cd dist
           for f in *; do
             case "$f" in
