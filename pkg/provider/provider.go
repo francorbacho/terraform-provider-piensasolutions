@@ -53,6 +53,10 @@ func configureProvider(_ context.Context, d *schema.ResourceData) (interface{}, 
 	totpSecret := d.Get("totp_secret").(string)
 
 	if nif != "" && password != "" && totpSecret != "" {
+		if cached, ok := loadCachedAccount(nif); ok {
+			return &piensaProvider{cfg: &models.Config{Accounts: []models.Account{cached}}}, nil
+		}
+
 		code, err := generateTOTP(totpSecret)
 		if err != nil {
 			return nil, diag.FromErr(fmt.Errorf("generate totp: %w", err))
@@ -65,16 +69,17 @@ func configureProvider(_ context.Context, d *schema.ResourceData) (interface{}, 
 		if err != nil {
 			return nil, diag.FromErr(fmt.Errorf("login: %w", err))
 		}
-		cfg := &models.Config{Accounts: []models.Account{{NIF: nif}}}
+		acc := models.Account{NIF: nif}
 		for _, v := range vps {
-			cfg.Accounts[0].Servers = append(cfg.Accounts[0].Servers, models.ServerToken{
+			acc.Servers = append(acc.Servers, models.ServerToken{
 				ServerID:   v.ServerUUID,
 				ServerName: v.Name,
 				Token:      v.XSRFToken,
 				ExpiresAt:  v.ExpiresAt,
 			})
 		}
-		return &piensaProvider{cfg: cfg}, nil
+		cacheAccount(acc)
+		return &piensaProvider{cfg: &models.Config{Accounts: []models.Account{acc}}}, nil
 	}
 
 	cfg, err := config.Load()
@@ -85,6 +90,57 @@ func configureProvider(_ context.Context, d *schema.ResourceData) (interface{}, 
 		return nil, diag.Errorf("no servers configured. Provide nif/password/totp_secret in provider config or run 'piensa login'")
 	}
 	return &piensaProvider{cfg: cfg}, nil
+}
+
+// tokenRefreshBuffer avoids handing out a token that expires mid-plan.
+const tokenRefreshBuffer = 2 * time.Minute
+
+// loadCachedAccount returns a still-valid cached session for nif, if any,
+// so repeated `tofu plan` runs within the XSRF token TTL (~55min) don't
+// have to log in again.
+func loadCachedAccount(nif string) (models.Account, bool) {
+	cfg, err := config.Load()
+	if err != nil {
+		return models.Account{}, false
+	}
+	for _, acc := range cfg.Accounts {
+		if acc.NIF != nif || len(acc.Servers) == 0 {
+			continue
+		}
+		valid := true
+		for _, st := range acc.Servers {
+			if st.Token == "" || !st.ExpiresAt.After(time.Now().Add(tokenRefreshBuffer)) {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			return acc, true
+		}
+	}
+	return models.Account{}, false
+}
+
+// cacheAccount persists a freshly logged-in account for reuse by later
+// provider runs, keeping any other accounts already in the config file.
+func cacheAccount(acc models.Account) {
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = &models.Config{}
+	}
+	replaced := false
+	for i := range cfg.Accounts {
+		if cfg.Accounts[i].NIF == acc.NIF {
+			cfg.Accounts[i] = acc
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		cfg.Accounts = append(cfg.Accounts, acc)
+	}
+	// Best-effort: failing to persist the cache shouldn't fail the provider.
+	_ = config.Save(cfg)
 }
 
 func generateTOTP(secret string) (string, error) {
