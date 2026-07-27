@@ -38,8 +38,8 @@ jobs:
           # Build provider binaries and package into Forgejo-compatible tar.gz
           for GOOS in linux; do
             for GOARCH in amd64 arm64; do
-              GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X main.version=${VERSION}" -o "/tmp/terraform-provider-piensa_v${VERSION}_${GOOS}_${GOARCH}" ./cmd/terraform-provider-piensa/
-              tar czf "dist/terraform-provider-piensa_${VERSION}_${GOOS}_${GOARCH}.tar.gz" -C /tmp "terraform-provider-piensa_v${VERSION}_${GOOS}_${GOARCH}"
+              GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "-X main.version=${VERSION}" -o "/tmp/terraform-provider-piensasolutions_v${VERSION}_${GOOS}_${GOARCH}" ./cmd/terraform-provider-piensasolutions/
+              tar czf "dist/terraform-provider-piensasolutions_${VERSION}_${GOOS}_${GOARCH}.tar.gz" -C /tmp "terraform-provider-piensasolutions_v${VERSION}_${GOOS}_${GOARCH}"
             done
           done
 
