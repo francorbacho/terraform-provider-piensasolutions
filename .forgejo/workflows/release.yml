@@ -34,8 +34,6 @@ jobs:
 
           GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=${VERSION}" -o "dist/piensa-linux-amd64"    ./cmd/piensa/
           GOOS=linux GOARCH=arm64 go build -ldflags "-X main.version=${VERSION}" -o "dist/piensa-linux-arm64"    ./cmd/piensa/
-          GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.version=${VERSION}" -o "dist/piensa-darwin-amd64"  ./cmd/piensa/
-          GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.version=${VERSION}" -o "dist/piensa-darwin-arm64"  ./cmd/piensa/
 
           # Build provider binaries and package into Forgejo-compatible tar.gz
           for GOOS in linux; do
