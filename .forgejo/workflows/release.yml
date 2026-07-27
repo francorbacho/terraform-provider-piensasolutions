@@ -78,8 +78,7 @@ jobs:
               tar -cf - -C "$dir" usr .PKGINFO | zstd -o "dist/${pkg}.pkg.tar.zst"
               rm -rf "$dir"
             }
-            arch_pkg x86_64  piensa-linux-amd64
-            arch_pkg aarch64 piensa-linux-arm64
+            arch_pkg x86_64 piensa-linux-amd64
           else
             echo "zstd not found - skipping Arch Linux packages"
           fi
