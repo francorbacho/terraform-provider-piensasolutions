@@ -33,6 +33,17 @@ type Server struct {
 	IPs          []IPAddress     `json:"ips"`
 }
 
+type Image struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	DatacenterID string   `json:"datacenter_id"`
+	License      string   `json:"license"`
+	Type         string   `json:"type"`
+	Alias        string   `json:"alias"`
+	ImageAliases []string `json:"image_aliases"`
+	Source       string   `json:"source"`
+}
+
 type FirewallRule struct {
 	ID          string     `json:"id"`
 	Action      RuleAction `json:"action"`
