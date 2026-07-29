@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/fran/piensa/pkg/client"
 	"github.com/fran/piensa/pkg/config"
@@ -651,6 +652,51 @@ func findImage(images []models.Image, datacenterID, want string) (*models.Image,
 	return nil, fmt.Errorf("no image matching %q found for datacenter %s (see: piensa images <server-id>)", want, datacenterID)
 }
 
+// --- logs ---
+
+var logsLimitFlag int
+
+var logsCmd = &cobra.Command{
+	Use:   "logs <server-id>",
+	Short: "Show a server's action history (power on/off, restarts, reinstalls, ...)",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		inputID := args[0]
+		cfg := loadConfig()
+		_, st := config.FindAccountByServerID(cfg, inputID)
+		if st == nil {
+			fmt.Fprintf(os.Stderr, "no token for server %s\n", inputID)
+			os.Exit(1)
+		}
+		c := client.New(st.Token)
+
+		entries, err := client.ListLogs(c, st.ServerID, logsLimitFlag)
+		if err != nil {
+			if strings.Contains(err.Error(), "HTTP 401") || strings.Contains(err.Error(), "HTTP 403") {
+				fmt.Fprintln(os.Stderr, "Tokens expired. Run: piensa login")
+			} else {
+				fmt.Fprintf(os.Stderr, "logs: %v\n", err)
+			}
+			os.Exit(1)
+		}
+		if len(entries) == 0 {
+			fmt.Println("no log entries")
+			return
+		}
+
+		fmt.Printf("%-20s %-10s %-9s %-12s %s\n", "STARTED", "ACTION", "STATUS", "DURATION", "USER")
+		fmt.Println(strings.Repeat("-", 65))
+		for _, e := range entries {
+			duration := "in progress"
+			if e.Finished != nil {
+				duration = e.Finished.Sub(e.Started).Round(time.Second).String()
+			}
+			fmt.Printf("%-20s %-10s %-9s %-12s %s\n",
+				e.Started.Local().Format("2006-01-02 15:04:05"), e.Action, e.Status, duration, e.User)
+		}
+	},
+}
+
 // --- restart / start / shutdown / suspend / resume ---
 
 func makeActionCmd(use, short string, action string) *cobra.Command {
@@ -690,6 +736,9 @@ func init() {
 	rootCmd.AddCommand(firewallCmd)
 
 	rootCmd.AddCommand(imagesCmd)
+
+	logsCmd.Flags().IntVar(&logsLimitFlag, "limit", 20, "Max number of log entries to show")
+	rootCmd.AddCommand(logsCmd)
 
 	reinstallCmd.Flags().StringVar(&reinstallImageFlag, "image", "", "Image to install (see: piensa images <server-id>)")
 	reinstallCmd.Flags().StringVar(&reinstallCloudInitFlag, "cloud-init", "", "Path to a cloud-init YAML file")

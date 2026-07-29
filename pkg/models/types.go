@@ -44,6 +44,15 @@ type Image struct {
 	Source       string   `json:"source"`
 }
 
+type LogEntry struct {
+	ID       string     `json:"id"`
+	Action   string     `json:"action"`
+	Status   string     `json:"status"`
+	User     string     `json:"user"`
+	Started  time.Time  `json:"started"`
+	Finished *time.Time `json:"finished,omitempty"`
+}
+
 type FirewallRule struct {
 	ID          string     `json:"id"`
 	Action      RuleAction `json:"action"`
