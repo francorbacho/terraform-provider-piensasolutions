@@ -722,6 +722,23 @@ func makeActionCmd(use, short string, action string) *cobra.Command {
 	}
 }
 
+// actionCommandSpecs maps each user-facing verb to the REST action it
+// actually sends. "start" and "shutdown" are reverse-engineered aliases:
+// the panel has no working /start or /shutdown server action - powering a
+// server on or off goes through /resume and /suspend respectively (verified
+// live against the real API).
+var actionCommandSpecs = []struct {
+	Use    string
+	Short  string
+	Action string
+}{
+	{"restart", "Restart a server", "reboot"},
+	{"start", "Start a server", "resume"},
+	{"shutdown", "Shutdown a server", "suspend"},
+	{"suspend", "Suspend a server", "suspend"},
+	{"resume", "Resume a server", "resume"},
+}
+
 func init() {
 	rootCmd.AddCommand(loginCmd)
 	loginCmd.Flags().StringVar(&loginNIF, "nif", "", "NIF for non-interactive login")
@@ -748,16 +765,7 @@ func init() {
 	reinstallCmd.Flags().BoolVar(&reinstallDryRunFlag, "dry-run", false, "Print what would be sent without reinstalling")
 	rootCmd.AddCommand(reinstallCmd)
 
-	rootCmd.AddCommand(makeActionCmd("restart", "Restart a server", "reboot"))
-	// A server suspended via "shutdown" comes back up through the "resume"
-	// action, not "start" (verified live: "start" 409s on a suspended server
-	// while "resume" succeeds immediately). "start" is kept as an alias since
-	// it's the more intuitive verb for powering a server back on.
-	rootCmd.AddCommand(makeActionCmd("start", "Start a server", "resume"))
-	// The panel has no dedicated "shutdown" endpoint; powering off a server
-	// is done via the same "suspend" action the panel's Suspend/Switch Off
-	// button calls (permissions also only expose a SHUTDOWN flag, no SUSPEND).
-	rootCmd.AddCommand(makeActionCmd("shutdown", "Shutdown a server", "suspend"))
-	rootCmd.AddCommand(makeActionCmd("suspend", "Suspend a server", "suspend"))
-	rootCmd.AddCommand(makeActionCmd("resume", "Resume a server", "resume"))
+	for _, spec := range actionCommandSpecs {
+		rootCmd.AddCommand(makeActionCmd(spec.Use, spec.Short, spec.Action))
+	}
 }

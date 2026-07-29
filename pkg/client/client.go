@@ -13,7 +13,9 @@ import (
 	"time"
 )
 
-const (
+// These are vars rather than consts so tests can point them at an
+// httptest.Server instead of the real API.
+var (
 	CloudPanelBase  = "https://cloudpanel.piensasolutions.com"
 	FrontPanelBase  = "https://front-cloudpanel.piensasolutions.com/api/corevps/v1"
 	SecurePanelBase = "https://secure.piensasolutions.com"
