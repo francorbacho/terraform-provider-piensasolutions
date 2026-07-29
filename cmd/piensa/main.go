@@ -431,10 +431,10 @@ func makeActionCmd(use, short string, action string) *cobra.Command {
 			}
 			c := client.New(st.Token)
 			if _, err := client.RawServerAction(c, st.ServerID, action); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: %v\n", action, err)
+				fmt.Fprintf(os.Stderr, "%s: %v\n", use, err)
 				os.Exit(1)
 			}
-			fmt.Printf("%s initiated for %s\n", action, st.ServerID[:8])
+			fmt.Printf("%s initiated for %s\n", use, st.ServerID[:8])
 		},
 	}
 }
@@ -454,7 +454,10 @@ func init() {
 
 	rootCmd.AddCommand(makeActionCmd("restart", "Restart a server", "reboot"))
 	rootCmd.AddCommand(makeActionCmd("start", "Start a server", "start"))
-	rootCmd.AddCommand(makeActionCmd("shutdown", "Shutdown a server", "shutdown"))
+	// The panel has no dedicated "shutdown" endpoint; powering off a server
+	// is done via the same "suspend" action the panel's Suspend/Switch Off
+	// button calls (permissions also only expose a SHUTDOWN flag, no SUSPEND).
+	rootCmd.AddCommand(makeActionCmd("shutdown", "Shutdown a server", "suspend"))
 	rootCmd.AddCommand(makeActionCmd("suspend", "Suspend a server", "suspend"))
 	rootCmd.AddCommand(makeActionCmd("resume", "Resume a server", "resume"))
 }
