@@ -183,6 +183,75 @@ func TestFindImage(t *testing.T) {
 	})
 }
 
+func TestResolveLoginCredentials(t *testing.T) {
+	env := map[string]string{
+		"PIENSA_NIF":         "env-nif",
+		"PIENSA_PASSWORD":    "env-password",
+		"PIENSA_TOTP_SECRET": "JBSWY3DPEHPK3PXP",
+	}
+	getenv := func(k string) string { return env[k] }
+
+	t.Run("all from env, code derived from totp secret", func(t *testing.T) {
+		nif, password, code, err := resolveLoginCredentials("", "", "", "", getenv)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if nif != "env-nif" || password != "env-password" {
+			t.Errorf("got nif=%q password=%q, want env values", nif, password)
+		}
+		if len(code) != 6 {
+			t.Errorf("got code %q, want a 6-digit TOTP code", code)
+		}
+	})
+
+	t.Run("explicit flags win over env", func(t *testing.T) {
+		nif, password, code, err := resolveLoginCredentials("flag-nif", "flag-password", "123456", "", getenv)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if nif != "flag-nif" || password != "flag-password" || code != "123456" {
+			t.Errorf("got nif=%q password=%q code=%q, want the explicit flag values unchanged", nif, password, code)
+		}
+	})
+
+	t.Run("explicit 2fa code wins over totp secret", func(t *testing.T) {
+		_, _, code, err := resolveLoginCredentials("", "", "654321", "JBSWY3DPEHPK3PXP", getenv)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if code != "654321" {
+			t.Errorf("got code %q, want the literal --2fa value 654321", code)
+		}
+	})
+
+	t.Run("explicit totp-secret flag wins over env var", func(t *testing.T) {
+		_, _, code, err := resolveLoginCredentials("", "", "", "JBSWY3DPEHPK3PXP", func(string) string { return "" })
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(code) != 6 {
+			t.Errorf("got code %q, want a 6-digit TOTP code derived from the flag secret", code)
+		}
+	})
+
+	t.Run("nothing set stays empty, no error", func(t *testing.T) {
+		nif, password, code, err := resolveLoginCredentials("", "", "", "", func(string) string { return "" })
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if nif != "" || password != "" || code != "" {
+			t.Errorf("got nif=%q password=%q code=%q, want all empty so the interactive prompt kicks in", nif, password, code)
+		}
+	})
+
+	t.Run("invalid totp secret errors instead of silently falling back", func(t *testing.T) {
+		_, _, _, err := resolveLoginCredentials("n", "p", "", "not-valid-base32!!", func(string) string { return "" })
+		if err == nil {
+			t.Fatal("expected an error for an invalid TOTP secret, got nil")
+		}
+	})
+}
+
 func TestFindServer(t *testing.T) {
 	const serverID = "11111111-1111-1111-1111-111111111111"
 

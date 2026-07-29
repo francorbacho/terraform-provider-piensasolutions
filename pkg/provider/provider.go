@@ -2,12 +2,7 @@ package provider
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha1"
-	"encoding/base32"
-	"encoding/binary"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/fran/piensa/pkg/client"
@@ -57,7 +52,7 @@ func configureProvider(_ context.Context, d *schema.ResourceData) (interface{}, 
 			return &piensaProvider{cfg: &models.Config{Accounts: []models.Account{cached}}}, nil
 		}
 
-		code, err := generateTOTP(totpSecret)
+		code, err := client.GenerateTOTP(totpSecret)
 		if err != nil {
 			return nil, diag.FromErr(fmt.Errorf("generate totp: %w", err))
 		}
@@ -141,26 +136,6 @@ func cacheAccount(acc models.Account) {
 	}
 	// Best-effort: failing to persist the cache shouldn't fail the provider.
 	_ = config.Save(cfg)
-}
-
-func generateTOTP(secret string) (string, error) {
-	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(secret))
-	if err != nil {
-		return "", fmt.Errorf("decode base32: %w", err)
-	}
-	counter := time.Now().Unix() / 30
-	msg := make([]byte, 8)
-	binary.BigEndian.PutUint64(msg, uint64(counter))
-	h := hmac.New(sha1.New, key)
-	h.Write(msg)
-	digest := h.Sum(nil)
-	offset := digest[len(digest)-1] & 0x0F
-	code := (int(digest[offset])&0x7F)<<24 |
-		(int(digest[offset+1])&0xFF)<<16 |
-		(int(digest[offset+2])&0xFF)<<8 |
-		(int(digest[offset+3]) & 0xFF)
-	code %= 1000000
-	return fmt.Sprintf("%06d", code), nil
 }
 
 func clientForServer(prov *piensaProvider, serverID string) (*client.Client, diag.Diagnostics) {

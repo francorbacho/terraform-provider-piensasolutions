@@ -33,6 +33,7 @@ var verboseFlag bool
 var loginNIF string
 var loginPassword string
 var loginCode string
+var loginTOTPSecret string
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&tokenFlag, "token", "t", "", "X-TOKEN (overrides config)")
@@ -103,17 +104,54 @@ The CLI will:
 
 Per-VPS tokens last ~1 hour. Run "piensa login" again to refresh.
 
-Flags:
-  --nif       NIF (omit for interactive prompt)
-  --password  Password (omit for interactive prompt)
-  --2fa       2FA code (omit for interactive prompt)`,
+Flags (each also falls back to an env var, so e.g.
+"sops exec-env secrets.yaml 'piensa login'" works with no flags at all
+given PIENSA_NIF/PIENSA_PASSWORD/PIENSA_TOTP_SECRET):
+  --nif           NIF (or $PIENSA_NIF; omit both for interactive prompt)
+  --password      Password (or $PIENSA_PASSWORD; omit both for interactive prompt)
+  --2fa           A literal 2FA code, if you have one to hand
+  --totp-secret   TOTP secret to derive the 2FA code from (or $PIENSA_TOTP_SECRET)`,
 	Run: func(cmd *cobra.Command, args []string) {
+		nif, password, code, err := resolveLoginCredentials(loginNIF, loginPassword, loginCode, loginTOTPSecret, os.Getenv)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "generate 2fa code: %v\n", err)
+			os.Exit(1)
+		}
+		loginNIF, loginPassword, loginCode = nif, password, code
 		if loginNIF != "" && loginPassword != "" && loginCode != "" {
 			loginNonInteractive()
 		} else {
 			loginInteractive(cmd)
 		}
 	},
+}
+
+// resolveLoginCredentials fills in nif/password/code from the environment
+// (PIENSA_NIF/PIENSA_PASSWORD/PIENSA_TOTP_SECRET) wherever the corresponding
+// flag was left empty, and derives a 2FA code from a TOTP secret when no
+// literal --2fa code was given. An explicit --2fa code always wins over a
+// TOTP secret, and an explicit flag always wins over its env var.
+func resolveLoginCredentials(nif, password, code, totpSecret string, getenv func(string) string) (string, string, string, error) {
+	if nif == "" {
+		nif = getenv("PIENSA_NIF")
+	}
+	if password == "" {
+		password = getenv("PIENSA_PASSWORD")
+	}
+	if code == "" {
+		secret := totpSecret
+		if secret == "" {
+			secret = getenv("PIENSA_TOTP_SECRET")
+		}
+		if secret != "" {
+			generated, err := client.GenerateTOTP(secret)
+			if err != nil {
+				return nif, password, "", err
+			}
+			code = generated
+		}
+	}
+	return nif, password, code, nil
 }
 
 func loginInteractive(cmd *cobra.Command) {
@@ -744,6 +782,7 @@ func init() {
 	loginCmd.Flags().StringVar(&loginNIF, "nif", "", "NIF for non-interactive login")
 	loginCmd.Flags().StringVar(&loginPassword, "password", "", "Password for non-interactive login")
 	loginCmd.Flags().StringVar(&loginCode, "2fa", "", "2FA code for non-interactive login")
+	loginCmd.Flags().StringVar(&loginTOTPSecret, "totp-secret", "", "TOTP secret to derive the 2FA code from (or set PIENSA_TOTP_SECRET)")
 	rootCmd.AddCommand(listCmd)
 
 	fwAllowCmd.Flags().StringP("description", "d", "", "Description for the allow rule")

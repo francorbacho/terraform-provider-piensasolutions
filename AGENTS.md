@@ -15,10 +15,6 @@ pkg/client/                          HTTP client for the PiensaSolutions APIs.
 pkg/config/                          ~/.config/piensa/config.json read/write.
 pkg/models/                          Shared plain structs (Server, Image, LogEntry, ...).
 pkg/provider/                        Terraform provider schema/resources.
-                                      that consumes this CLI/provider via Terraform +
-                                      SOPS. Read it if you need the cross-repo picture
-                                      (token-refresh-on-401 is listed there as still
-                                      unimplemented in the provider).
 ```
 
 New CLI subcommands go in `cmd/piensa/main.go` (it's a monolith by
@@ -128,13 +124,17 @@ Multi-hop, not a simple bearer token:
    `front-cloudpanel.piensasolutions.com/api/corevps/v1/...` call for the
    rest of the CLI's life. It lasts **~1 hour**.
 
-The CLI's `login` command only accepts a literal `--2fa <code>` (a 6-digit
-TOTP code), not a TOTP secret. **The Terraform provider is the only place
-in this repo that generates TOTP codes from a secret**
-(`pkg/provider/provider.go`, stdlib `crypto/hmac`+`encoding/base32`, no
-external deps). If you add non-interactive/scripted login support to the
-CLI, port that logic rather than reinventing it — and don't add an
-`otp`/`pyotp` dependency, the existing code proves stdlib is enough.
+`client.GenerateTOTP` (`pkg/client/auth.go`, stdlib `crypto/hmac`+
+`encoding/base32`, no external deps) derives a 6-digit code from a base32
+TOTP secret — it's the one place in the repo that does this; both
+`piensa login` and the Terraform provider's `totp_secret` config call it.
+Don't add an `otp`/`pyotp` dependency, the existing code proves stdlib is
+enough. `piensa login` resolves `--nif`/`--password`/`--2fa` from
+`PIENSA_NIF`/`PIENSA_PASSWORD`/`PIENSA_TOTP_SECRET` env vars when the
+flags are empty (`resolveLoginCredentials` in main.go), which is what
+makes `sops exec-env secrets.yaml "piensa login"` work with zero flags
+— note the flag name is `--totp-secret`, not `--2fa`, when you have a
+secret rather than a literal code; an explicit `--2fa` always wins.
 
 **Gotcha:** `GET /pss-core/logs` (the `piensa logs` backing endpoint) is on
 a *different* backend service than the rest of `/api/corevps/v1/...` and

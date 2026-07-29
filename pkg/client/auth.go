@@ -1,6 +1,10 @@
 package client
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base32"
+	"encoding/binary"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -20,6 +24,35 @@ type LoginResult struct {
 }
 
 var Verbose bool
+
+// GenerateTOTP derives the current 6-digit TOTP code (RFC 6238, 30s step,
+// SHA1) from a base32 secret, for non-interactive login. This is the only
+// place in the repo that computes 2FA codes from a secret; the CLI's
+// `login --2fa` flag/PIENSA_TOTP_SECRET env var and the Terraform
+// provider's `totp_secret` config both go through this.
+func GenerateTOTP(secret string) (string, error) {
+	return generateTOTPAt(secret, time.Now())
+}
+
+func generateTOTPAt(secret string, t time.Time) (string, error) {
+	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(secret))
+	if err != nil {
+		return "", fmt.Errorf("decode base32: %w", err)
+	}
+	counter := t.Unix() / 30
+	msg := make([]byte, 8)
+	binary.BigEndian.PutUint64(msg, uint64(counter))
+	h := hmac.New(sha1.New, key)
+	h.Write(msg)
+	digest := h.Sum(nil)
+	offset := digest[len(digest)-1] & 0x0F
+	code := (int(digest[offset])&0x7F)<<24 |
+		(int(digest[offset+1])&0xFF)<<16 |
+		(int(digest[offset+2])&0xFF)<<8 |
+		(int(digest[offset+3]) & 0xFF)
+	code %= 1000000
+	return fmt.Sprintf("%06d", code), nil
+}
 
 // Login sends username + password + 2FA to public-gateway.php and returns
 // the session token (tkn) and HMAC key (pvtKey).
