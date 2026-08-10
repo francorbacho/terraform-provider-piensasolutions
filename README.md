@@ -131,7 +131,13 @@ terraform import 'piensa_firewall_rule.this["vps1:ssh"]' '<server-id>:22:TCP'
 seeding it with a cloud-init config or a bash script that runs on first boot.
 It is destructive — use `--dry-run` first, then confirm or pass `--yes`.
 
-1. **Pick an image** in the server's datacenter:
+1. **Get the server ID:**
+
+   ```sh
+   piensa list
+   ```
+
+2. **Pick an image** in the server's datacenter:
 
    ```sh
    piensa images <server-id>
@@ -141,20 +147,24 @@ It is destructive — use `--dry-run` first, then confirm or pass `--yes`.
    short alias (`IF-debian-13-generic-amd64`), or an unambiguous substring.
    Ambiguous input is rejected with the matching candidates.
 
-2. **Dry-run to see exactly what would be sent:**
+3. **Dry-run to see exactly what would be sent:**
 
    ```sh
    piensa reinstall <server-id> --image "Debian 13" --cloud-init init.yaml --dry-run
    ```
 
-3. **Apply.** With a cloud-init file:
+4. **Apply.** With a cloud-init file — e.g. bootstrap Tailscale on first boot:
 
    ```yaml
    # init.yaml
    #cloud-config
    runcmd:
-     - apt-get update && apt-get install -y nginx
+     - curl -fsSL https://tailscale.com/install.sh | sh
+     - tailscale up --auth-key tskey-auth-00000000-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --hostname my-vps
    ```
+
+   The auth key above is a fake placeholder — generate your own with
+   `tailscale up` or the admin console, and treat it as a secret.
 
    ```sh
    piensa reinstall <server-id> --image "Debian 13" --cloud-init init.yaml --yes
