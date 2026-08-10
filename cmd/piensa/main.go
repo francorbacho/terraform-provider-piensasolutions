@@ -7,9 +7,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fran/piensa/pkg/client"
-	"github.com/fran/piensa/pkg/config"
-	"github.com/fran/piensa/pkg/models"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/client"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/config"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/models"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )

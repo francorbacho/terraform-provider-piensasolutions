@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fran/piensa/pkg/client"
-	"github.com/fran/piensa/pkg/models"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/client"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/models"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )

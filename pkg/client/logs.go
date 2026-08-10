@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fran/piensa/pkg/models"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/models"
 )
 
 type logsResponse struct {

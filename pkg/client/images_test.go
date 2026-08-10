@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/fran/piensa/pkg/client"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/client"
 )
 
 // sampleImagesJSON is a trimmed version of a real /pss/images?depth=3

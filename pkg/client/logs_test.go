@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fran/piensa/pkg/client"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/client"
 )
 
 // sampleLogsJSON mirrors the shapes actually observed in the HAR captures:

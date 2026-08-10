@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/fran/piensa/pkg/client"
-	"github.com/fran/piensa/pkg/models"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/client"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/models"
 )
 
 // This pins down the two reverse-engineered fixes: "shutdown" must send the

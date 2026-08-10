@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/fran/piensa/pkg/client"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/client"
 )
 
 const sampleReinstallResponse = `{"id":"11111111-1111-1111-1111-111111111111","properties":{"name":"Test VPS","state":"CONFIGURING","image_id":"b97f8a37-8af5-11f1-affb-fadda67ef9cd","power_state":"ON","first_password":"test-auto-password","resources":{"cpu":2,"ram":4,"disk":120}}}`

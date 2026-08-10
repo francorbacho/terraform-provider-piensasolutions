@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/fran/piensa/pkg/provider"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/provider"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
 )
 

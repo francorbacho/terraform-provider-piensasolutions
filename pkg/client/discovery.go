@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fran/piensa/pkg/models"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/models"
 )
 
 type serverItem struct {

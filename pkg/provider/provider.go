@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fran/piensa/pkg/client"
-	"github.com/fran/piensa/pkg/config"
-	"github.com/fran/piensa/pkg/models"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/client"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/config"
+	"github.com/francorbacho/terraform-provider-piensasolutions/pkg/models"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )

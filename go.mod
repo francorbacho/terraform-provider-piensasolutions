@@ -1,4 +1,4 @@
-module github.com/fran/piensa
+module github.com/francorbacho/terraform-provider-piensasolutions
 
 go 1.26.5
 
