@@ -61,8 +61,8 @@ credentials are configured.
 terraform {
   required_providers {
     piensasolutions = {
-      source  = "github.com/francorbacho/terraform-provider-piensasolutions"
-      version = "~> 0.1"
+      source  = "francorbacho/piensasolutions"
+      version = "~> 0.2"
     }
   }
 }
