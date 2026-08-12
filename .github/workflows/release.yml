@@ -47,7 +47,10 @@ jobs:
               rm -rf "$STAGE"
             done
           done
-          (cd dist && sha256sum terraform-provider-piensasolutions_${VERSION}_*.zip > terraform-provider-piensasolutions_${VERSION}_SHA256SUMS)
+          jq -n '{version:1,metadata:{protocol_versions:["5.0"]}}' \
+            > "dist/terraform-provider-piensasolutions_${VERSION}_manifest.json"
+
+          (cd dist && sha256sum terraform-provider-piensasolutions_${VERSION}_*.zip terraform-provider-piensasolutions_${VERSION}_manifest.json > terraform-provider-piensasolutions_${VERSION}_SHA256SUMS)
 
           # Arch Linux packages (.pkg.tar.zst) from the CLI binaries
           if command -v zstd >/dev/null 2>&1; then
@@ -83,6 +86,27 @@ jobs:
           for f in piensa-*; do
             sha256sum "$f" > "$f.sha256"
           done
+
+      - name: Sign provider checksums
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        shell: sh
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          export GNUPGHOME="$(mktemp -d)"
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+          KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
+
+          gpg --batch --yes --pinentry-mode loopback \
+            --local-user "$KEY_ID" \
+            --detach-sign --armor \
+            -o "dist/terraform-provider-piensasolutions_${VERSION}_SHA256SUMS.sig" \
+            "dist/terraform-provider-piensasolutions_${VERSION}_SHA256SUMS"
+
+          gpg --verify "dist/terraform-provider-piensasolutions_${VERSION}_SHA256SUMS.sig" \
+            "dist/terraform-provider-piensasolutions_${VERSION}_SHA256SUMS"
 
       - name: Create release
         env:
