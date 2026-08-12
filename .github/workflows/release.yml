@@ -9,110 +9,29 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  goreleaser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          go-version: '1.26.5'
+          # Allow goreleaser to access older tag information.
+          fetch-depth: 0
 
-      - name: Build binaries
-        shell: sh
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p dist
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
 
-          # CLI binaries (fully static; run on both glibc and musl hosts)
-          for GOOS in linux darwin; do
-            for GOARCH in amd64 arm64; do
-              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build \
-                -ldflags "-X main.version=${VERSION}" \
-                -o "dist/piensa-${GOOS}-${GOARCH}" ./cmd/piensa/
-            done
-          done
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
+        id: import_gpg
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
 
-          # Provider packages in registry format (zip + SHA256SUMS).
-          # The zip contents and naming must match what the OpenTofu /
-          # Terraform registries consume: terraform-provider-<name>_<ver>_<os>_<arch>.zip
-          DIST="$(pwd)/dist"
-          for GOOS in linux darwin; do
-            for GOARCH in amd64 arm64; do
-              STAGE=$(mktemp -d)
-              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build \
-                -ldflags "-X main.version=${VERSION}" \
-                -o "$STAGE/terraform-provider-piensasolutions" ./cmd/terraform-provider-piensasolutions/
-              (cd "$STAGE" && zip -q "$DIST/terraform-provider-piensasolutions_${VERSION}_${GOOS}_${GOARCH}.zip" terraform-provider-piensasolutions)
-              rm -rf "$STAGE"
-            done
-          done
-          jq -n '{version:1,metadata:{protocol_versions:["5.0"]}}' \
-            > "dist/terraform-provider-piensasolutions_${VERSION}_manifest.json"
-
-          (cd dist && sha256sum terraform-provider-piensasolutions_${VERSION}_*.zip terraform-provider-piensasolutions_${VERSION}_manifest.json > terraform-provider-piensasolutions_${VERSION}_SHA256SUMS)
-
-          # Arch Linux packages (.pkg.tar.zst) from the CLI binaries
-          if command -v zstd >/dev/null 2>&1; then
-            arch_pkg() {
-              local arch=$1 binary=$2
-              local pkg="piensa-${VERSION}-1-${arch}"
-              local dir=$(mktemp -d)
-              mkdir -p "$dir/usr/bin"
-              cp "dist/${binary}" "$dir/usr/bin/piensa"
-              SIZE=$(wc -c < "dist/${binary}")
-              {
-                echo "pkgname = piensa"
-                echo "pkgver = ${VERSION}-1"
-                echo "pkgdesc = PiensaSolutions VPS manager CLI"
-                echo "url = https://github.com/francorbacho/terraform-provider-piensasolutions"
-                echo "builddate = $(date +%s)"
-                echo "packager = CI Runner"
-                echo "size = ${SIZE}"
-                echo "arch = ${arch}"
-                echo "license = MIT"
-              } > "$dir/.PKGINFO"
-              tar -cf - -C "$dir" usr .PKGINFO | zstd -o "dist/${pkg}.pkg.tar.zst"
-              rm -rf "$dir"
-            }
-            arch_pkg x86_64 piensa-linux-amd64
-            arch_pkg aarch64 piensa-linux-arm64
-          else
-            echo "zstd not found - skipping Arch Linux packages"
-          fi
-
-          # Checksums for the CLI binaries
-          cd dist
-          for f in piensa-*; do
-            sha256sum "$f" > "$f.sha256"
-          done
-
-      - name: Sign provider checksums
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
+        with:
+          args: release --clean
         env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-        shell: sh
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-
-          export GNUPGHOME="$(mktemp -d)"
-          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import
-
-          KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')
-
-          gpg --batch --yes --pinentry-mode loopback \
-            --local-user "$KEY_ID" \
-            --detach-sign --armor \
-            -o "dist/terraform-provider-piensasolutions_${VERSION}_SHA256SUMS.sig" \
-            "dist/terraform-provider-piensasolutions_${VERSION}_SHA256SUMS"
-
-          gpg --verify "dist/terraform-provider-piensasolutions_${VERSION}_SHA256SUMS.sig" \
-            "dist/terraform-provider-piensasolutions_${VERSION}_SHA256SUMS"
-
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: sh
-        run: |
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --title "${GITHUB_REF_NAME}" \
-            --notes "Release ${GITHUB_REF_NAME}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}

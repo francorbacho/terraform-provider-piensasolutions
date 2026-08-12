@@ -1,0 +1,91 @@
+version: 2
+
+project_name: terraform-provider-piensasolutions
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: piensa
+    main: ./cmd/piensa
+    binary: piensa
+    env:
+      - CGO_ENABLED=0
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+  - id: terraform-provider-piensasolutions
+    main: ./cmd/terraform-provider-piensasolutions
+    binary: '{{ .ProjectName }}_v{{ .Version }}'
+    env:
+      - CGO_ENABLED=0
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  # CLI: plain binaries, no zip, matching the previous "piensa-<os>-<arch>" naming.
+  - id: piensa-archive
+    ids: [piensa]
+    formats: [binary]
+    name_template: "piensa-{{ .Os }}-{{ .Arch }}"
+
+  # Terraform/OpenTofu registry protocol requires this exact naming and zip layout
+  # (the zip must contain only the provider binary, nothing else).
+  - id: provider-archive
+    ids: [terraform-provider-piensasolutions]
+    formats: [zip]
+    name_template: "terraform-provider-piensasolutions_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - none*
+
+nfpms:
+  - id: piensa-archlinux
+    package_name: piensa
+    ids: [piensa]
+    formats: [archlinux]
+    homepage: https://github.com/francorbacho/terraform-provider-piensasolutions
+    maintainer: "Fran <francorbacho@proton.me>"
+    description: PiensaSolutions VPS manager CLI
+    license: MIT
+    bindir: /usr/bin
+    file_name_template: >-
+      piensa-{{ .Version }}-1-{{ if eq .Arch "amd64" }}x86_64{{ else if eq .Arch "arm64" }}aarch64{{ else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: "terraform-provider-piensasolutions_{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+  extra_files:
+    - glob: terraform-registry-manifest.json
+      name_template: "terraform-provider-piensasolutions_{{ .Version }}_manifest.json"
+
+signs:
+  - id: provider-signature
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    args:
+      - "--batch"
+      - "-u"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+
+release:
+  extra_files:
+    - glob: terraform-registry-manifest.json
+      name_template: "terraform-provider-piensasolutions_{{ .Version }}_manifest.json"
+
+changelog:
+  disable: true
